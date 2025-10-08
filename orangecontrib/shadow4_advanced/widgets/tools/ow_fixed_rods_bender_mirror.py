@@ -377,6 +377,8 @@ class OWFixedRodsBenderMirror(_OWMirror):
     def get_optical_element_instance(self):
         if self.modified_surface: self.congruence_surface_data_file()
 
+        reflectivity_source = self.reflectivity_source if self.reflectivity_source < 5 else 6 # no more xraylib
+
         ellipsoid_mirror = S4EllipsoidMirror(
                 name="Flexural Hinge Bender Mirror",
                 boundary_shape=self.get_boundary_shape(),
@@ -392,13 +394,13 @@ class OWFixedRodsBenderMirror(_OWMirror):
                 grazing_angle=self.get_focusing_grazing_angle(),
                 # inputs related to mirror reflectivity
                 f_reflec=self.reflectivity_flag,  # reflectivity of surface: 0=no reflectivity, 1=full polarization
-                f_refl=self.reflectivity_source,  # 0=prerefl file
-                                                # 1=electric susceptibility
-                                                # 2=user defined file (1D reflectivity vs angle)
-                                                # 3=user defined file (1D reflectivity vs energy)
-                                                # 4=user defined file (2D reflectivity vs energy and angle)
-                                                # 5=direct calculation using xraylib
-                                                # 6=direct calculation using dabax
+                f_refl=reflectivity_source,  # 0=prerefl file
+                                           # 1=electric susceptibility
+                                           # 2=user defined file (1D reflectivity vs angle)
+                                           # 3=user defined file (1D reflectivity vs energy)
+                                           # 4=user defined file (2D reflectivity vs energy and angle)
+                                           # 5=direct calculation using xraylib
+                                           # 6=direct calculation using dabax
                 file_refl=self.file_refl,  # preprocessor file fir f_refl=0,2,3,4
                 refraction_index=1 - self.refraction_index_delta + 1j * self.refraction_index_beta,
                 # refraction index (complex) for f_refl=1

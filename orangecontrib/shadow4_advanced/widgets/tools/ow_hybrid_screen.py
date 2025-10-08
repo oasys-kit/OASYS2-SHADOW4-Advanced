@@ -87,7 +87,6 @@ class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
     IMAGE_WIDTH = 860
     IMAGE_HEIGHT = 545
 
-
     def __init__(self):
         super().__init__()
 
