@@ -1,2 +1,2 @@
-# OASYS2-SHADOW4-Advanced
-Widgets for Shadow4-Advanced-Tools in Oasys2
+# OASYS1-SHADOW4-Advanced
+Advanced Tools for Shadow4
