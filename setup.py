@@ -88,7 +88,6 @@ SETUP_REQUIRES = (
 
 INSTALL_REQUIRES = (
                     'oasys2>=0.0.1',
-                    'shadow4>=0.1.61',
                     'shadow4-advanced>=0.0.13',
                     'oasys2-shadow4>=0.0.1',
                     )
