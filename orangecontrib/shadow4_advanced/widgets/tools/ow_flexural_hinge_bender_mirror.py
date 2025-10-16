@@ -1,9 +1,9 @@
 import numpy
 import os
 
-from PyQt5.QtWidgets import QLabel, QSizePolicy
-from PyQt5.QtGui import QPixmap
-from PyQt5.QtCore import Qt
+from AnyQt.QtWidgets import QLabel, QSizePolicy
+from AnyQt.QtGui import QPixmap
+from AnyQt.QtCore import Qt
 
 from matplotlib import cm
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg

@@ -2,8 +2,8 @@ __author__ = 'labx'
 
 import os, sys, numpy
 
-from PyQt5.QtGui import QImage, QPixmap,  QPalette, QFont, QColor, QTextCursor
-from PyQt5.QtWidgets import QLabel, QWidget, QHBoxLayout, QMessageBox
+from AnyQt.QtGui import QImage, QPixmap,  QTextCursor
+from AnyQt.QtWidgets import QLabel, QWidget, QHBoxLayout, QMessageBox
 
 from silx.gui.plot.ImageView import ImageView
 
@@ -99,13 +99,7 @@ class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
         button_box = oasysgui.widgetBox(self.controlArea, "", addSpace=False, orientation="horizontal")
 
         button = gui.button(button_box, self, "Run HYBRID", callback=self.run_hybrid)
-        font = QFont(button.font())
-        font.setBold(True)
-        button.setFont(font)
-        palette = QPalette(button.palette()) # make a copy of the palette
-        palette.setColor(QPalette.ButtonText, QColor('Dark Blue'))
-        button.setPalette(palette) # assign new palette
-        button.setFixedHeight(45)
+        button.setStyleSheet("color: darkblue; font-weight: bold; height: 45px;")
 
         main_tabs = oasysgui.tabWidget(self.mainArea)
         plot_tab = oasysgui.createTabPage(main_tabs, "Plots")
