@@ -538,19 +538,19 @@ class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
 
             if do_plot:
                 if self.propagation_type == HybridPropagationType.BOTH:
-                    self.plot_histo_hybrid(progress[0], divergence, start_index + 0,     title=u"\u2206" + ax + "p", xtitle=r'$\Delta$' + ax + 'p [$\mu$rad]', ytitle=r'Arbitrary Units', var=4)
-                    self.plot_histo_hybrid(progress[2], position,   start_index + 1, title=u"\u2206" + ax, xtitle=r'$\Delta$' + ax + ' [$\mu$m]', ytitle=r'Arbitrary Units', var=1)
+                    self.plot_histo_hybrid(progress[0], divergence, start_index + 0,     title=u"\u2206" + ax + "p", xtitle=r'$\Delta$' + ax + 'p [$\\mu$rad]', ytitle=r'Arbitrary Units', var=4)
+                    self.plot_histo_hybrid(progress[2], position,   start_index + 1, title=u"\u2206" + ax, xtitle=r'$\Delta$' + ax + ' [$\\mu$m]', ytitle=r'Arbitrary Units', var=1)
                     if plot_shadow:
-                        self.plot_histo(beam[0], progress[1], var, plot_canvas_index=start_index + 2, title=ax, xtitle=r'' + ax + ' [$\mu$m]', ytitle=r'Number of Rays', xum=("X [" + u"\u03BC" + "m]"))
-                        self.plot_histo(beam[1], progress[3], var, plot_canvas_index=start_index + 3, title=ax, xtitle=r'' + ax + ' [$\mu$m]', ytitle=r'Number of Rays', xum=("X [" + u"\u03BC" + "m]"))
+                        self.plot_histo(beam[0], progress[1], var, plot_canvas_index=start_index + 2, title=ax, xtitle=r'' + ax + ' [$\\mu$m]', ytitle=r'Number of Rays', xum=("X [" + u"\u03BC" + "m]"))
+                        self.plot_histo(beam[1], progress[3], var, plot_canvas_index=start_index + 3, title=ax, xtitle=r'' + ax + ' [$\\mu$m]', ytitle=r'Number of Rays', xum=("X [" + u"\u03BC" + "m]"))
                 elif self.propagation_type == HybridPropagationType.FAR_FIELD:
-                    self.plot_histo_hybrid(progress[1], divergence, start_index + 0, title=u"\u2206" + ax + "p", xtitle=r'$\Delta$' + ax + 'p [$\mu$rad]', ytitle=r'Arbitrary Units', var=4)
+                    self.plot_histo_hybrid(progress[1], divergence, start_index + 0, title=u"\u2206" + ax + "p", xtitle=r'$\Delta$' + ax + 'p [$\\mu$rad]', ytitle=r'Arbitrary Units', var=4)
                     if plot_shadow:
-                        self.plot_histo(beam, progress[3], var, plot_canvas_index=start_index + 1, title=ax, xtitle=r'' + ax + ' [$\mu$m]', ytitle=r'Number of Rays', xum=("X [" + u"\u03BC" + "m]"))
+                        self.plot_histo(beam, progress[3], var, plot_canvas_index=start_index + 1, title=ax, xtitle=r'' + ax + ' [$\\mu$m]', ytitle=r'Number of Rays', xum=("X [" + u"\u03BC" + "m]"))
                 elif self.propagation_type == HybridPropagationType.NEAR_FIELD:
-                    self.plot_histo_hybrid(progress[1], position, start_index + 0, title=u"\u2206" + ax, xtitle=r'$\Delta$' + ax + ' [$\mu$m]', ytitle=r'Arbitrary Units', var=1)
+                    self.plot_histo_hybrid(progress[1], position, start_index + 0, title=u"\u2206" + ax, xtitle=r'$\Delta$' + ax + ' [$\\mu$m]', ytitle=r'Arbitrary Units', var=1)
                     if plot_shadow:
-                        self.plot_histo(beam, progress[3], var, plot_canvas_index=start_index + 1, title=ax, xtitle=r'' + ax + ' [$\mu$m]', ytitle=r'Number of Rays', xum=("X [" + u"\u03BC" + "m]"))
+                        self.plot_histo(beam, progress[3], var, plot_canvas_index=start_index + 1, title=ax, xtitle=r'' + ax + ' [$\\mu$m]', ytitle=r'Number of Rays', xum=("X [" + u"\u03BC" + "m]"))
             else:
                 if self.propagation_type == HybridPropagationType.BOTH:
                     self.plot_emtpy(progress[0], start_index + 0)
@@ -567,15 +567,15 @@ class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
         elif self.diffraction_plane == HybridDiffractionPlane.TANGENTIAL: plot_direction("T", do_plot_tangential)
         elif self.diffraction_plane == HybridDiffractionPlane.BOTH_2D:
             if do_plot_sagittal and do_plot_tangential:
-                self.plot_xy_hybrid(88, calculation_result.divergence_2D, plot_canvas_index=0, title="X',Z'",xtitle="X' [$\mu$rad]", ytitle="Z' [$\mu$rad]", var1=4, var2=6)
-                self.plot_xy(beam, 96, 1, 3, plot_canvas_index=1, title="X,Z", xtitle=r'X [$\mu$m]', ytitle=r'Z [$\mu$m]', xum=("X [" + u"\u03BC" + "m]"), yum=("Z [" + u"\u03BC" + "m]"))
+                self.plot_xy_hybrid(88, calculation_result.divergence_2D, plot_canvas_index=0, title="X',Z'",xtitle="X' [$\\mu$rad]", ytitle="Z' [$\\mu$rad]", var1=4, var2=6)
+                self.plot_xy(beam, 96, 1, 3, plot_canvas_index=1, title="X,Z", xtitle=r'X [$\\mu$m]', ytitle=r'Z [$\\mu$m]', xum=("X [" + u"\u03BC" + "m]"), yum=("Z [" + u"\u03BC" + "m]"))
             else:
                 if do_plot_sagittal:
-                    self.plot_histo_hybrid(88, calculation_result.divergence_sagittal, plot_canvas_index=0, title=u"\u2206" + "X'", xtitle="$\Delta$X' [$\mu$rad]", ytitle=r'Arbitrary Units', var=4)
-                    self.plot_histo(beam, 96, 1, plot_canvas_index=1, title="X", xtitle=r'X [$\mu$m]', ytitle=r'Number of Rays', xum=("X [" + u"\u03BC" + "m]"))
+                    self.plot_histo_hybrid(88, calculation_result.divergence_sagittal, plot_canvas_index=0, title=u"\u2206" + "X'", xtitle="$\Delta$X' [$\\mu$rad]", ytitle=r'Arbitrary Units', var=4)
+                    self.plot_histo(beam, 96, 1, plot_canvas_index=1, title="X", xtitle=r'X [$\\mu$m]', ytitle=r'Number of Rays', xum=("X [" + u"\u03BC" + "m]"))
                 elif do_plot_tangential:
-                    self.plot_histo_hybrid(88, calculation_result.divergence_tangential, 0, title=u"\u2206" + "Z'", xtitle="$\Delta$Z' [$\mu$rad]", ytitle=r'Arbitrary Units', var=6)
-                    self.plot_histo(beam, 96, 3, plot_canvas_index=1, title="Z", xtitle=r'Z [$\mu$m]', ytitle=r'Number of Rays', xum=("Z [" + u"\u03BC" + "m]"))
+                    self.plot_histo_hybrid(88, calculation_result.divergence_tangential, 0, title=u"\u2206" + "Z'", xtitle="$\Delta$Z' [$\\mu$rad]", ytitle=r'Arbitrary Units', var=6)
+                    self.plot_histo(beam, 96, 3, plot_canvas_index=1, title="Z", xtitle=r'Z [$\\mu$m]', ytitle=r'Number of Rays', xum=("Z [" + u"\u03BC" + "m]"))
                 else:
                     self.plot_emtpy(88, 0)
                     self.plot_emtpy(96, 1)
@@ -585,12 +585,12 @@ class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
 
             if self.propagation_type == HybridPropagationType.BOTH:
                 self.plot_xy(beam[0], 94, 1, 3, plot_canvas_index=4 if self.propagation_type == HybridPropagationType.BOTH else 2,
-                             title="X,Z", xtitle=r'X [$\mu$m]', ytitle=r'Z [$\mu$m]', xum=("X [" + u"\u03BC" + "m]"), yum=("Z [" + u"\u03BC" + "m]"))
+                             title="X,Z", xtitle=r'X [$\\mu$m]', ytitle=r'Z [$\\mu$m]', xum=("X [" + u"\u03BC" + "m]"), yum=("Z [" + u"\u03BC" + "m]"))
                 self.plot_xy(beam[1], 94, 1, 3, plot_canvas_index=5 if self.propagation_type == HybridPropagationType.BOTH else 3,
-                             title="X,Z", xtitle=r'X [$\mu$m]', ytitle=r'Z [$\mu$m]', xum=("X [" + u"\u03BC" + "m]"), yum=("Z [" + u"\u03BC" + "m]"))
+                             title="X,Z", xtitle=r'X [$\\mu$m]', ytitle=r'Z [$\\mu$m]', xum=("X [" + u"\u03BC" + "m]"), yum=("Z [" + u"\u03BC" + "m]"))
             else:
                 self.plot_xy(beam, 94, 1, 3, plot_canvas_index=2,
-                             title="X,Z", xtitle=r'X [$\mu$m]', ytitle=r'Z [$\mu$m]', xum=("X [" + u"\u03BC" + "m]"), yum=("Z [" + u"\u03BC" + "m]"))
+                             title="X,Z", xtitle=r'X [$\\mu$m]', ytitle=r'Z [$\\mu$m]', xum=("X [" + u"\u03BC" + "m]"), yum=("Z [" + u"\u03BC" + "m]"))
 
     def check_fields(self):
         if self.diffraction_plane in [HybridDiffractionPlane.SAGITTAL, HybridDiffractionPlane.BOTH_2D]:
