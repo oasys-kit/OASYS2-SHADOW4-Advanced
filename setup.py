@@ -52,8 +52,8 @@ __date__ = "19/02/2024"
 import os
 from setuptools import find_packages, setup
 
-NAME = 'OASYS2-shadow4-advanced'
-VERSION = '0.0.7'
+NAME = 'OASYS2-SHADOW4-Advanced'
+VERSION = '0.0.8'
 ISRELEASED = False
 
 DESCRIPTION = 'oasys2-shadow4-advanced: Oasys 2 widgets for shadow4 - advanced tools'
