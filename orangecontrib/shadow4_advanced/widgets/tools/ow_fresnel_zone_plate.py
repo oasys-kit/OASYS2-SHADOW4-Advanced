@@ -17,7 +17,8 @@ from oasys2.widget.util.widget_util import EmittingStream
 from oasys2.widget.util.widget_objects import TriggerIn
 from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
-from shadow4.beam.s4_beam import S4Beam
+from syned.beamline.element_coordinates import ElementCoordinates
+
 from orangecontrib.shadow4.util.shadow4_objects import ShadowData
 from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, TriggerToolsDecorator
 from orangecontrib.shadow4.widgets.gui.ow_generic_element import GenericElement
@@ -106,18 +107,16 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
     focal_distance = 0.0
     efficiency = 0.0
 
-
-
     def __init__(self):
-        super(FresnelZonePlate, self).__init__()
+        super(FresnelZonePlate, self).__init__(show_automatic_box=True, has_footprint=False)
 
-        self.runaction = OWAction("Run Shadow/Trace", self)
+        self.runaction = OWAction("Run Shadow4/Trace", self)
         self.runaction.triggered.connect(self.run_shadow4)
         self.addAction(self.runaction)
 
         button_box = oasysgui.widgetBox(self.controlArea, "", addSpace=False, orientation="horizontal")
 
-        button = gui.button(button_box, self, "Run Shadow/Trace", callback=self.run_shadow4)
+        button = gui.button(button_box, self, "Run Shadow4/Trace", callback=self.run_shadow4)
         button.setStyleSheet("color: darkblue; font-weight: bold; height: 45px;")
 
         button = gui.button(button_box, self, "Reset Fields", callback=self.callResetSettings)
@@ -133,11 +132,10 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
 
         upper_box = oasysgui.widgetBox(tab_pos, "Optical Element Orientation", addSpace=True, orientation="vertical")
 
-        self.le_source_plane_distance = oasysgui.lineEdit(upper_box, self, "source_plane_distance", "Source Plane Distance", labelWidth=260, valueType=float, orientation="horizontal")
-        self.le_image_plane_distance  = oasysgui.lineEdit(upper_box, self, "image_plane_distance", "Image Plane Distance", labelWidth=260, valueType=float, orientation="horizontal")
+        self.le_source_plane_distance = oasysgui.lineEdit(upper_box, self, "source_plane_distance", "Source Plane Distance [m]", labelWidth=260, valueType=float, orientation="horizontal")
+        self.le_image_plane_distance  = oasysgui.lineEdit(upper_box, self, "image_plane_distance", "Image Plane Distance [m]", labelWidth=260, valueType=float, orientation="horizontal")
 
-        tab_bas = oasysgui.createTabPage(tabs_setting, "Basic Setting")
-        tab_adv = oasysgui.createTabPage(tabs_setting, "Advanced Setting")
+        tab_bas = oasysgui.createTabPage(tabs_setting, "Settings")
 
         ##########################################
         ##########################################
@@ -199,7 +197,7 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
         self.osa_box_1 = oasysgui.widgetBox(zp_box, "", addSpace=False, orientation="vertical", height=60)
         self.osa_box_2 = oasysgui.widgetBox(zp_box, "", addSpace=False, orientation="vertical", height=60)
 
-        self.le_osa_position = oasysgui.lineEdit(self.osa_box_1, self, "osa_position", "O.S.A. position ", labelWidth=260, valueType=float, orientation="horizontal")
+        self.le_osa_position = oasysgui.lineEdit(self.osa_box_1, self, "osa_position", "O.S.A. position [m]", labelWidth=260, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(self.osa_box_1, self, "osa_diameter", "O.S.A. Diameter [" + u"\u03BC" + "m]", labelWidth=260, valueType=float, orientation="horizontal")
 
         self.set_WithOrderSortingAperture()
@@ -211,11 +209,11 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
         self.zp_box_1 = oasysgui.widgetBox(zp_box, "", addSpace=False, orientation="vertical", height=30)
         self.zp_box_2 = oasysgui.widgetBox(zp_box, "", addSpace=False, orientation="vertical", height=30)
 
-        self.le_source_distance = oasysgui.lineEdit(self.zp_box_1, self, "source_distance", "Source Distance", labelWidth=260, valueType=float, orientation="horizontal")
+        self.le_source_distance = oasysgui.lineEdit(self.zp_box_1, self, "source_distance", "Source Distance [m]", labelWidth=260, valueType=float, orientation="horizontal")
 
         self.set_SourceDistanceFlag()
 
-        gui.comboBox(zp_box, self, "image_distance_flag", label="Image Distance", labelWidth=350,
+        gui.comboBox(zp_box, self, "image_distance_flag", label="Image Distance [m]", labelWidth=350,
                      items=["Image Plane Distance", "F.Z.P. Image Distance"],
                      callback=self.set_ImageDistanceFlag, sendSelectedValue=False, orientation="horizontal")
 
@@ -258,11 +256,11 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
         self.le_number_of_zones.setReadOnly(True)
         self.le_number_of_zones.setStyleSheet(read_only_style)
 
-        self.le_focal_distance = oasysgui.lineEdit(zp_out_box, self, "focal_distance", "Focal Distance", labelWidth=260, valueType=float, orientation="horizontal")
+        self.le_focal_distance = oasysgui.lineEdit(zp_out_box, self, "focal_distance", "Focal Distance [m]", labelWidth=260, valueType=float, orientation="horizontal")
         self.le_focal_distance.setReadOnly(True)
         self.le_focal_distance.setStyleSheet(read_only_style)
 
-        self.le_image_distance = oasysgui.lineEdit(zp_out_box, self, "image_distance", "Image Distance (Q)", labelWidth=260, valueType=float, orientation="horizontal")
+        self.le_image_distance = oasysgui.lineEdit(zp_out_box, self, "image_distance", "Image Distance (Q) [m]", labelWidth=260, valueType=float, orientation="horizontal")
         self.le_image_distance.setReadOnly(True)
         self.le_image_distance.setStyleSheet(read_only_style)
 
@@ -285,12 +283,6 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
                          oasysgui.createTabPage(self.prop_tabs, "Generated 2D distribution")]
         self.prop_plot_canvas = [None, None]
 
-    def isFootprintEnabled(self):
-        return False
-
-    def enableFootprint(self, enabled=False):
-        pass
-
     def run_shadow4(self, scanning_data: ShadowData.ScanningData = None):
         if self.input_data is None:
             self.prompt_exception(ValueError("No input beam"))
@@ -301,11 +293,11 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
             self.setStatusMessage("")
             self.progressBarInit()
 
-            if ShadowCongruence.checkEmptyBeam(self.input_data):
-                if ShadowCongruence.checkGoodBeam(self.input_data):
+            if ShadowCongruence.check_empty_data(self.input_data):
+                if ShadowCongruence.check_good_beam(self.input_data.beam):
                     self.checkFields()
 
-                    sys.stdout = EmittingStream(textWritten=self.writeStdOut)
+                    sys.stdout = EmittingStream(textWritten=self._write_stdout)
 
                     beamline = self.input_data.beamline.duplicate()
 
@@ -321,12 +313,12 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
                                                                      increase_resolution=self.increase_resolution==1,
                                                                      increase_points=self.increase_points)
                     options = FZPSimulatorOptions(with_central_stop=self.with_central_stop==1,
-                                                  cs_diameter=numpy.round(self.cs_diameter*1e-6, 7),
+                                                  cs_diameter=round(self.cs_diameter*1e-6, 7),
                                                   with_order_sorting_aperture=self.with_order_sorting_aperture==1,
-                                                  osa_position=self.osa_position*self.workspace_units_to_m,
-                                                  osa_diameter=numpy.round(self.osa_diameter*1e-6, 7),
+                                                  osa_position=self.osa_position,
+                                                  osa_diameter=round(self.osa_diameter*1e-6, 7),
                                                   zone_plate_type=self.zone_plate_type,
-                                                  width_coating=numpy.round(self.width_coating*1e-9, 10),
+                                                  width_coating=round(self.width_coating*1e-9, 10),
                                                   height1_factor=self.height1_factor,
                                                   height2_factor=self.height2_factor,
                                                   with_range=False,
@@ -334,26 +326,31 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
                                                   n_slices=self.n_slices,
                                                   with_complex_amplitude=False,
                                                   store_partial_results=False)
-                    attributes = FZPAttributes(height=numpy.round(self.height*1e-9, 10),
-                                               diameter=numpy.round(self.diameter*1e-6, 7),
-                                               b_min=numpy.round(self.b_min*1e-9, 10),
+                    attributes = FZPAttributes(height=round(self.height*1e-9, 10),
+                                               diameter=round(self.diameter*1e-6, 7),
+                                               b_min=round(self.b_min*1e-9, 10),
                                                zone_plate_material=self.zone_plate_material,
                                                template_material=self.template_material)
 
                     self.progressBarSet(30)
 
-                    fzp = S4FresnelZonePlateElement(optical_element=S4FresnelZonePlate(options=options,
-                                                                                       attributes=attributes),
-                                                    coordinates=self.get_coordinates_instance(),
-                                                    input_beam=self.input_data.beam)
-                    #fzp.set_movements(self.get_movements_instance()) for the future
+                    element = S4FresnelZonePlateElement(optical_element=S4FresnelZonePlate(input_parameters=input_parameters,
+                                                                                           options=options,
+                                                                                           attributes=attributes),
+                                                        coordinates=ElementCoordinates(p=self.source_distance, q=self.image_distance),
+                                                        input_beam=self.input_data.beam)
+                    #element.set_movements(self.get_movements_instance()) for the future
 
-                    output_beam, calculation_result = fzp.run_fzp_hybrid_method(input_parameters)
+                    print(element.info())
 
-                    self.avg_energy      = fzp.get_energy_in_KeV()
-                    self.image_distance  = numpy.round(fzp.zp_image_distance, 6)
-                    self.number_of_zones = fzp.get_n_zones()
-                    self.focal_distance  = numpy.round(fzp.zp_focal_distance, 6)
+                    output_beam, calculation_result = element.trace_beam()
+
+                    zone_plate_out = element.get_optical_element()
+
+                    self.avg_energy      = 1e3*zone_plate_out.get_energy_in_KeV()
+                    self.image_distance  = round(zone_plate_out.zp_image_distance, 6)
+                    self.number_of_zones = zone_plate_out.get_n_zones()
+                    self.focal_distance  = round(zone_plate_out.zp_focal_distance, 6)
                     self.efficiency      = round(calculation_result.efficiency*100, 2)
 
                     self.plot_propagation_results(calculation_result)
@@ -362,11 +359,19 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
 
                     self.setStatusMessage("Plotting Results")
 
-                    self.plot_results(output_beam)
+                    self._plot_results(output_beam, None)
 
                     self.setStatusMessage("")
 
-                    beamline.append_beamline_element(fzp)
+                    beamline.append_beamline_element(element)
+
+                    script = beamline.to_python_code()
+                    script += "\n\n\n# test plot"
+                    script += "\nif True:"
+                    script += "\n   from srxraylib.plot.gol import plot_scatter"
+                    script += "\n   plot_scatter(beam.get_photon_energy_eV(nolost=1), beam.get_column(23, nolost=1), title='(Intensity,Photon Energy)', plot_histograms=0)"
+                    script += "\n   plot_scatter(1e6 * beam.get_column(1, nolost=1), 1e6 * beam.get_column(3, nolost=1), title='(X,Z) in microns')"
+                    self.shadow4_script.set_code(script)
 
                     #
                     # send beam and trigger
@@ -449,23 +454,23 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
     def plot_1D(self, index, radius, profile_1D, replace=True, profile_name="z pos #1", control=False, color='blue'):
         if self.prop_plot_canvas[index] is None:
             self.prop_plot_canvas[index] = oasysgui.plotWindow(parent=None,
-                                              backend=None,
-                                              resetzoom=True,
-                                              autoScale=True,
-                                              logScale=True,
-                                              grid=True,
-                                              curveStyle=True,
-                                              colormap=False,
-                                              aspectRatio=False,
-                                              yInverted=False,
-                                              copy=True,
-                                              save=True,
-                                              print_=True,
-                                              control=control,
-                                              position=True,
-                                              roi=False,
-                                              mask=False,
-                                              fit=True)
+                                                               backend=None,
+                                                               resetzoom=True,
+                                                               autoScale=True,
+                                                               logScale=True,
+                                                               grid=True,
+                                                               curveStyle=True,
+                                                               colormap=False,
+                                                               aspectRatio=False,
+                                                               yInverted=False,
+                                                               copy=True,
+                                                               save=True,
+                                                               print_=True,
+                                                               control=control,
+                                                               position=True,
+                                                               roi=False,
+                                                               mask=False,
+                                                                fit=True)
 
             self.prop_plot_canvas[index].setDefaultPlotLines(True)
             self.prop_plot_canvas[index].setActiveCurveStyle(color="#00008B")
@@ -517,11 +522,11 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
             
         self.prop_plot_canvas[index].clear()
         self.prop_plot_canvas[index].addImage(numpy.array(data2D),
-                             legend="rotated",
-                             scale=scale,
-                             origin=origin,
-                             colormap=colormap,
-                             replace=True)
+                                              legend="rotated",
+                                              scale=scale,
+                                              origin=origin,
+                                              colormap=colormap,
+                                              replace=True)
 
         self.prop_plot_canvas[index].setActiveImage("rotated")
         self.prop_plot_canvas[index].setGraphXLabel("X' [\u03bcrad]")
