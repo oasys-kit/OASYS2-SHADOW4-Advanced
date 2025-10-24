@@ -142,9 +142,6 @@ def __populate_fields(widget, shadow_src):
 
 def __generate_initial_beam(widget):
     ###########################################
-    # TODO: TO BE ADDED JUST IN CASE OF BROKEN
-    #       ENVIRONMENT: MUST BE FOUND A PROPER WAY
-    #       TO TEST SHADOW
     widget.fixWeirdShadowBug()
     ###########################################
 
