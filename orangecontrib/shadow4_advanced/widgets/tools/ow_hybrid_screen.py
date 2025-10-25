@@ -17,6 +17,7 @@ from oasys2.widget import gui as oasysgui
 from oasys2.widget.util import congruence
 from oasys2.widget.util.widget_objects import TriggerIn, OasysThicknessErrorsData
 from oasys2.widget.util.widget_util import EmittingStream
+from oasys2.widget.gui import Styles
 from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
 from orangecontrib.shadow4.widgets.gui.ow_automatic_element import AutomaticElement
@@ -96,10 +97,10 @@ class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
 
         self.controlArea.setFixedWidth(self.CONTROL_AREA_WIDTH)
 
-        button_box = oasysgui.widgetBox(self.controlArea, "", addSpace=False, orientation="horizontal")
+        button_box = oasysgui.widgetBox(self.controlArea, "", addSpace=False, orientation="horizontal", width=self.CONTROL_AREA_WIDTH-5)
 
         button = gui.button(button_box, self, "Run HYBRID", callback=self.run_hybrid)
-        button.setStyleSheet("color: darkblue; font-weight: bold; height: 45px;")
+        button.setStyleSheet(Styles.button_blue)
 
         main_tabs = oasysgui.tabWidget(self.mainArea)
         plot_tab = oasysgui.createTabPage(main_tabs, "Plots")
@@ -126,7 +127,7 @@ class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
         self.tabs_setting.setFixedHeight(self.TABS_AREA_HEIGHT)
         self.tabs_setting.setFixedWidth(self.CONTROL_AREA_WIDTH-5)
 
-        tab_bas = oasysgui.createTabPage(self.tabs_setting, "Basic Setting")
+        tab_bas = oasysgui.createTabPage(self.tabs_setting, "General")
 
         box_1 = oasysgui.widgetBox(tab_bas, "Calculation Parameters", addSpace=True, orientation="vertical", height=130)
 

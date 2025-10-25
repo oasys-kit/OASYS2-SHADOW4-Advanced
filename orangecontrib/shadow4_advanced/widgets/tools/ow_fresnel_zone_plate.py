@@ -14,6 +14,7 @@ from oasys2.widget.widget import OWAction
 from oasys2.widget import gui as oasysgui
 from oasys2.widget.util import congruence
 from oasys2.widget.util.widget_util import EmittingStream
+from oasys2.widget.gui import Styles
 from oasys2.widget.util.widget_objects import TriggerIn
 from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
@@ -117,10 +118,10 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
         button_box = oasysgui.widgetBox(self.controlArea, "", addSpace=False, orientation="horizontal")
 
         button = gui.button(button_box, self, "Run Shadow4/Trace", callback=self.run_shadow4)
-        button.setStyleSheet("color: darkblue; font-weight: bold; height: 45px;")
+        button.setStyleSheet(Styles.button_blue)
 
         button = gui.button(button_box, self, "Reset Fields", callback=self.callResetSettings)
-        button.setStyleSheet("color: darkred; font-weight: bold; font-style: italic; height: 45px; width: 150px;")
+        button.setStyleSheet(Styles.button_red)
 
         gui.separator(self.controlArea)
 
@@ -135,7 +136,7 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
         self.le_source_plane_distance = oasysgui.lineEdit(upper_box, self, "source_plane_distance", "Source Plane Distance [m]", labelWidth=260, valueType=float, orientation="horizontal")
         self.le_image_plane_distance  = oasysgui.lineEdit(upper_box, self, "image_plane_distance", "Image Plane Distance [m]", labelWidth=260, valueType=float, orientation="horizontal")
 
-        tab_bas = oasysgui.createTabPage(tabs_setting, "Settings")
+        tab_bas = oasysgui.createTabPage(tabs_setting, "Fresnel Zone Plate")
 
         ##########################################
         ##########################################
@@ -246,7 +247,7 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
 
         zp_out_box = oasysgui.widgetBox(tab_zone_plate_3, "Output Parameters", addSpace=False, orientation="vertical", height=270)
 
-        read_only_style = "color: darkblue; background-color: rgb(243, 240, 160); font-weight: bold;"
+        read_only_style = Styles.line_edit_read_only
 
         self.le_avg_wavelength = oasysgui.lineEdit(zp_out_box, self, "avg_energy", "Average Energy [eV]", labelWidth=260, valueType=float, orientation="horizontal")
         self.le_avg_wavelength.setReadOnly(True)
@@ -398,7 +399,7 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
         super(FresnelZonePlate, self).set_trigger_parameters_for_optics(trigger)
 
     @Inputs.shadow_data
-    def set_input_data(self, shadow_data):
+    def set_shadow_data(self, shadow_data):
         if ShadowCongruence.check_empty_data(shadow_data):
             self.input_data = shadow_data
 

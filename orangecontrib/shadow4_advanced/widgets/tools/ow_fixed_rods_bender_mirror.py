@@ -8,6 +8,7 @@ from AnyQt.QtCore import Qt
 from matplotlib import cm
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
+
 try:
     from mpl_toolkits.mplot3d import Axes3D  # necessario per caricare i plot 3D
 except:
@@ -17,7 +18,7 @@ import orangecanvas.resources as resources
 from orangewidget import gui
 from orangewidget.settings import Setting
 
-from oasys2.widget.gui import FigureCanvas3D
+from oasys2.widget.gui import FigureCanvas3D, Styles
 from oasys2.widget import gui as oasysgui
 from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
@@ -171,14 +172,14 @@ class OWFixedRodsBenderMirror(_OWMirror):
     def populate_tab_bender(self, subtab_bender):
         tabs = gui.tabWidget(subtab_bender)
 
-        tab_bender = oasysgui.createTabPage(tabs, "Bender Setting")
+        tab_bender = oasysgui.createTabPage(tabs, "Bender")
 
-        surface_box = oasysgui.widgetBox(tab_bender, "Surface Setting", addSpace=False, orientation="vertical")
+        surface_box = oasysgui.widgetBox(tab_bender, "Surface", addSpace=False, orientation="vertical")
 
         oasysgui.lineEdit(surface_box, self, "bender_bin_x", "bins Sagittal", labelWidth=260, valueType=int, orientation="horizontal")
         oasysgui.lineEdit(surface_box, self, "bender_bin_y", "bins Transversal", labelWidth=260, valueType=int, orientation="horizontal")
 
-        material_box = oasysgui.widgetBox(tab_bender, "Bender Setting", addSpace=False, orientation="vertical")
+        material_box = oasysgui.widgetBox(tab_bender, "Bender", addSpace=False, orientation="vertical")
 
         oasysgui.lineEdit(material_box, self, "E", "Young's Modulus [GPa]", labelWidth=260, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(material_box, self, "h", "Thickness [m]", labelWidth=260, valueType=float, orientation="horizontal")
@@ -194,7 +195,7 @@ class OWFixedRodsBenderMirror(_OWMirror):
 
         help_box.layout().addWidget(label)
 
-        tab_fit = oasysgui.createTabPage(tabs, "Fit Setting")
+        tab_fit = oasysgui.createTabPage(tabs, "Fit")
 
         self.fit_box = oasysgui.widgetBox(tab_fit, "", addSpace=False, orientation="vertical")
 
@@ -225,7 +226,7 @@ class OWFixedRodsBenderMirror(_OWMirror):
 
             le = oasysgui.lineEdit(box, self, variable + "_out", "Fitted", labelWidth=60, valueType=float, orientation="horizontal")
             le.setEnabled(False)
-            le.setStyleSheet("color: blue; background-color: rgb(254, 244, 205); font:bold")
+            le.setStyleSheet(Styles.line_edit_read_only)
 
             def set_variable_fit(): setattr(self, variable, getattr(self, variable + "_out"))
             gui.button(box, self, "<- Use", width=58, callback=set_variable_fit)
@@ -265,10 +266,10 @@ class OWFixedRodsBenderMirror(_OWMirror):
 
         le = oasysgui.lineEdit(self.mov_box_nocal_1, self, "F_upstream_movement", "Fu [N]", labelWidth=250, valueType=float, orientation="horizontal")
         le.setEnabled(False)
-        le.setStyleSheet("color: blue; background-color: rgb(254, 244, 205); font:bold")
+        le.setStyleSheet(Styles.line_edit_read_only)
         le = oasysgui.lineEdit(self.mov_box_nocal_1, self, "F_downstream_movement", "Fd [N]", labelWidth=250, valueType=float, orientation="horizontal")
         le.setEnabled(False)
-        le.setStyleSheet("color: blue; background-color: rgb(254, 244, 205); font:bold")
+        le.setStyleSheet(Styles.line_edit_read_only)
 
         # ---- CALIBRATION
 
@@ -287,17 +288,17 @@ class OWFixedRodsBenderMirror(_OWMirror):
 
         le = oasysgui.lineEdit(self.mov_box_cal_1, self, "F_upstream_movement", "Fu [N]", labelWidth=250, valueType=float, orientation="horizontal")
         le.setEnabled(False)
-        le.setStyleSheet("color: blue; background-color: rgb(254, 244, 205); font:bold")
+        le.setStyleSheet(Styles.line_edit_read_only)
         le = oasysgui.lineEdit(self.mov_box_cal_1, self, "F_downstream_movement", "Fd [N]", labelWidth=250, valueType=float, orientation="horizontal")
         le.setEnabled(False)
-        le.setStyleSheet("color: blue; background-color: rgb(254, 244, 205); font:bold")
+        le.setStyleSheet(Styles.line_edit_read_only)
 
         le = oasysgui.lineEdit(self.mov_box_cal_1, self, "q_upstream_movement", "Upstream Focus Position [m]", labelWidth=250, valueType=float, orientation="horizontal")
         le.setEnabled(False)
-        le.setStyleSheet("color: blue; background-color: rgb(254, 244, 205); font:bold")
+        le.setStyleSheet(Styles.line_edit_read_only)
         le = oasysgui.lineEdit(self.mov_box_cal_1, self, "q_downstream_movement", "Downstream Focus Position [m]", labelWidth=250, valueType=float, orientation="horizontal")
         le.setEnabled(False)
-        le.setStyleSheet("color: blue; background-color: rgb(254, 244, 205); font:bold")
+        le.setStyleSheet(Styles.line_edit_read_only)
 
         self.set_use_calibration()
         self.set_use_fitted_result_to_move_bender()

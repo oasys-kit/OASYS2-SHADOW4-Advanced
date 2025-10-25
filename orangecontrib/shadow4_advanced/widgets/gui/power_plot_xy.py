@@ -348,7 +348,7 @@ class AbstractPowerPlotXY(AutomaticElement):
         tab_post_smooth = oasysgui.createTabPage(tabs_post, "Smoothing")
         tab_post_fit    = oasysgui.createTabPage(tabs_post, "Fit")
 
-        post_box = oasysgui.widgetBox(tab_post_basic, "Basic Post Processing Setting", addSpace=False, orientation="vertical", height=460)
+        post_box = oasysgui.widgetBox(tab_post_basic, "Post Processing", addSpace=False, orientation="vertical", height=460)
 
         button_box = oasysgui.widgetBox(post_box, "", addSpace=False, orientation="vertical")
         button = gui.button(button_box, self, "Reset", callback=self.reload_plot, height=25, width=352)
@@ -409,7 +409,7 @@ class AbstractPowerPlotXY(AutomaticElement):
 
         self.set_Masking()
 
-        post_box = oasysgui.widgetBox(tab_post_smooth, "Smoothing Setting", addSpace=False, orientation="vertical", height=220)
+        post_box = oasysgui.widgetBox(tab_post_smooth, "Smoothing", addSpace=False, orientation="vertical", height=220)
 
         button_box = oasysgui.widgetBox(post_box, "", addSpace=False, orientation="vertical")
         button = gui.button(button_box, self, "Reset", callback=self.reload_plot, height=25, width=352)
@@ -458,7 +458,7 @@ class AbstractPowerPlotXY(AutomaticElement):
 
         self.set_Filter()
 
-        post_box = oasysgui.widgetBox(tab_post_fit, "Fit Setting", addSpace=False, orientation="vertical", height=460)
+        post_box = oasysgui.widgetBox(tab_post_fit, "Fit", addSpace=False, orientation="vertical", height=460)
 
         gui.comboBox(post_box, self, "fit_algorithm", label="Fit Algorithm",
                      items=["Gaussian", "Pseudo-Voigt", "Polynomial"], labelWidth=200,

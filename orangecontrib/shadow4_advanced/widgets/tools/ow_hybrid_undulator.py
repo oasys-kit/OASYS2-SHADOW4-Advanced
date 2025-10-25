@@ -44,33 +44,43 @@
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE         #
 # POSSIBILITY OF SUCH DAMAGE.                                             #
 # #########################################################################
-
+import os
 import sys
 import numpy
 
 from silx.gui.plot import Plot2D
 
-from PyQt5.QtWidgets import QMessageBox, QDialog, QVBoxLayout, QLabel, QDialogButtonBox
-from PyQt5.QtGui import QPixmap, QPalette, QColor, QFont
-from PyQt5.QtCore import QSettings
+from AnyQt.QtWidgets import QMessageBox, QDialog, QVBoxLayout, QLabel, QDialogButtonBox
+from AnyQt.QtGui import QPixmap, QPalette, QColor, QFont
+from AnyQt.QtCore import QSettings
 
 import orangecanvas.resources as resources
+from build.lib.syned.storage_ring.electron_beam import ElectronBeam
+
 from orangewidget import gui
-from oasys.widgets import gui as oasysgui
-from oasys.widgets import congruence
-from orangewidget import widget
-from oasys.util.oasys_util import TriggerOut, EmittingStream
+from orangewidget.settings import Setting
+from orangewidget.widget import Input, Output
+
+from oasys2.widget import gui as oasysgui
+from oasys2.widget.util import congruence
+from oasys2.widget.widget import OWAction
+from oasys2.widget.util.widget_util import EmittingStream
+from oasys2.widget.util.widget_objects import TriggerOut
+from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
 from syned.beamline.beamline import Beamline
 from syned.beamline.optical_elements.absorbers.slit import Slit
 from syned.storage_ring.light_source import LightSource
-from syned.widget.widget_decorator import WidgetDecorator
 from syned.beamline.shape import Rectangle
 
-from orangecontrib.shadow.util.shadow_objects import ShadowSource, ShadowBeam, ShadowOEHistoryItem
+from orangecontrib.shadow4.widgets.gui.ow_synchrotron_source import OWSynchrotronSource
+from orangecontrib.shadow4.util.shadow4_objects import ShadowData
+from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence
 
-from orangecontrib.shadow.widgets.gui.ow_generic_element import GenericElement
-from orangecontrib.shadow_advanced_tools.widgets.sources.attributes.hybrid_undulator_attributes import HybridUndulatorAttributes
+from shadow4_advanced.hybrid.s4_hybrid_undulator_light_source import (
+    S4HybridUndulatorLightSource, HybridUndulatorInputParameters, HybridUndulatorOutputParameters, HybridUndulatorListener,
+    gamma, get_default_initial_z, resonance_energy, is_canted_undulator, get_source_slit_data, set_which_waist
+)
 
 import scipy.constants as codata
 
@@ -79,87 +89,145 @@ m2ev = codata.c * codata.h / codata.e
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from orangecontrib.shadow_advanced_tools.widgets.sources.bl import hybrid_undulator_bl as BL
 
-VERTICAL = 1
-HORIZONTAL = 2
-BOTH = 3
+class AutoUndulator:
+    VERTICAL   = 1
+    HORIZONTAL = 2
+    BOTH       = 3
 
-class Distribution:
-    POSITION = 0
-    DIVERGENCE = 1
 
-class HybridUndulator(GenericElement, HybridUndulatorAttributes):
-    TABS_AREA_HEIGHT = 620
-
-    name = "Shadow/SRW Undulator"
-    description = "Shadow Source: Hybrid Shadow/SRW Undulator"
-    icon = "icons/undulator.png"
-    priority = 1
+class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
+    name = "Shadow4/SRW Undulator"
+    description = "Advanced Tools: Hybrid Shadow/SRW Undulator"
+    icon = "icons/hybrid_undulator.png"
+    priority = 5
     maintainer = "Luca Rebuffi"
     maintainer_email = "lrebuffi(@at@)anl.gov"
     category = "Sources"
     keywords = ["data", "file", "load", "read"]
 
-    inputs = WidgetDecorator.syned_input_data()
-    inputs.append(("SynedData#2", Beamline, "receive_syned_data"))
-    inputs.append(("Trigger", TriggerOut, "sendNewBeam"))
 
-    outputs = [{"name":"Beam",
-                "type":ShadowBeam,
-                "doc":"Shadow Beam",
-                "id":"beam"}]
+    distribution_source = Setting(0)
+    cumulated_view_type = Setting(0)
 
-    def __init__(self, show_automatic_box=False):
-        super().__init__(show_automatic_box=show_automatic_box)
+    # Shadow
+    number_of_rays  = Setting(5000)
+    seed            = Setting(6775431)
+    use_harmonic    = Setting(0)
+    harmonic_number = Setting(1)
+    harmonic_energy = 0.0
+    energy          = Setting(10000.0)
+    energy_to       = Setting(10100.0)
+    energy_points   = Setting(10)
 
-        self.runaction = widget.OWAction("Run Shadow/Source", self)
-        self.runaction.triggered.connect(self.runShadowSource)
-        self.addAction(self.runaction)
+    #SRW -> Undulator
+    number_of_periods                            = Setting(184)
+    undulator_period                             = Setting(0.025)
+    Kv                                           = Setting(0.857)
+    Kh                                           = Setting(0)
+    Bh                                           = Setting(0.0)
+    Bv                                           = Setting(1.5)
+    magnetic_field_from                          = Setting(0)
+    initial_phase_vertical                       = Setting(0.0)
+    initial_phase_horizontal                     = Setting(0.0)
+    symmetry_vs_longitudinal_position_vertical   = Setting(1)
+    symmetry_vs_longitudinal_position_horizontal = Setting(0)
+    horizontal_central_position                  = Setting(0.0)
+    vertical_central_position                    = Setting(0.0)
+    longitudinal_central_position                = Setting(0.0)
 
-        self.general_options_box.setVisible(False)
+    auto_expand = Setting(0)
+    auto_expand_rays = Setting(0)
 
-        button_box = oasysgui.widgetBox(self.controlArea, "", addSpace=False, orientation="horizontal")
+    type_of_initialization = Setting(0)
 
-        button = gui.button(button_box, self, "Run Shadow/Source", callback=self.runShadowSource)
-        font = QFont(button.font())
-        font.setBold(True)
-        button.setFont(font)
-        palette = QPalette(button.palette()) # make a copy of the palette
-        palette.setColor(QPalette.ButtonText, QColor('Dark Blue'))
-        button.setPalette(palette) # assign new palette
-        button.setFixedHeight(45)
+    moment_x = Setting(0.0)
+    moment_y = Setting(0.0)
+    moment_z = Setting(0.0)
+    moment_xp = Setting(0.0)
+    moment_yp = Setting(0.0)
 
-        button = gui.button(button_box, self, "Reset Fields", callback=self.callResetSettings)
-        font = QFont(button.font())
-        font.setItalic(True)
-        button.setFont(font)
-        palette = QPalette(button.palette()) # make a copy of the palette
-        palette.setColor(QPalette.ButtonText, QColor('Dark Red'))
-        button.setPalette(palette) # assign new palette
-        button.setFixedHeight(45)
-        button.setFixedWidth(150)
+    source_dimension_wf_h_slit_gap = Setting(0.0015)
+    source_dimension_wf_v_slit_gap = Setting(0.0015)
+    source_dimension_wf_h_slit_c = Setting(0.0)
+    source_dimension_wf_v_slit_c =Setting( 0.0)
+    source_dimension_wf_h_slit_points = Setting(301)
+    source_dimension_wf_v_slit_points = Setting(301)
+    source_dimension_wf_distance = Setting(28.0)
 
-        gui.separator(self.controlArea)
+    horizontal_range_modification_factor_at_resizing = Setting(0.5)
+    horizontal_resolution_modification_factor_at_resizing = Setting(5.0)
+    vertical_range_modification_factor_at_resizing = Setting(0.5)
+    vertical_resolution_modification_factor_at_resizing = Setting(5.0)
 
-        ######################################
+    waist_position_calculation = Setting(0)
+    waist_position = Setting(0.0)
 
-        self.controlArea.setFixedWidth(self.CONTROL_AREA_WIDTH)
+    waist_position_auto = Setting(0)
+    waist_position_auto_h = Setting(0.0)
+    waist_position_auto_v = Setting(0.0)
+    waist_back_propagation_parameters = Setting(1)
+    waist_horizontal_range_modification_factor_at_resizing = Setting(0.5)
+    waist_horizontal_resolution_modification_factor_at_resizing = Setting(5.0)
+    waist_vertical_range_modification_factor_at_resizing = Setting(0.5)
+    waist_vertical_resolution_modification_factor_at_resizing = Setting(5.0)
+    which_waist = Setting(2)
+    number_of_waist_fit_points = Setting(10)
+    degree_of_waist_fit = Setting(3)
+    use_sigma_or_fwhm = Setting(0)
 
-        tabs_setting = oasysgui.tabWidget(self.controlArea)
-        tabs_setting.setFixedHeight(self.TABS_AREA_HEIGHT)
-        tabs_setting.setFixedWidth(self.CONTROL_AREA_WIDTH-5)
+    waist_position_user_defined = Setting(0.0)
 
-        tab_shadow = oasysgui.createTabPage(tabs_setting, "Shadow Setting")
-        tab_spdiv = oasysgui.createTabPage(tabs_setting, "Position/Divergence Setting")
-        tab_util = oasysgui.createTabPage(tabs_setting, "Utility")
+    kind_of_sampler = Setting(1)
+    save_srw_result = Setting(0)
 
-        gui.comboBox(tab_spdiv, self, "distribution_source", label="Distribution Source", labelWidth=310,
-                     items=["SRW Calculation", "SRW Files", "ASCII Files"], orientation="horizontal", callback=self.set_DistributionSource)
+    # SRW FILE INPUT
 
-        self.srw_box = oasysgui.widgetBox(tab_spdiv, "", addSpace=False, orientation="vertical", height=550)
-        self.srw_files_box = oasysgui.widgetBox(tab_spdiv, "", addSpace=False, orientation="vertical", height=550)
-        self.ascii_box = oasysgui.widgetBox(tab_spdiv, "", addSpace=False, orientation="vertical", height=550)
+    source_dimension_srw_file = Setting("intensity_source_dimension.dat")
+    angular_distribution_srw_file = Setting("intensity_angular_distribution.dat")
+
+    # ASCII FILE INPUT
+
+    x_positions_file = Setting("x_positions.txt")
+    z_positions_file = Setting("z_positions.txt")
+    x_positions_factor = Setting(0.01)
+    z_positions_factor = Setting(0.01)
+    x_divergences_file = Setting("x_divergences.txt")
+    z_divergences_file = Setting("z_divergences.txt")
+    x_divergences_factor = Setting(1.0)
+    z_divergences_factor = Setting(1.0)
+
+    combine_strategy = Setting(0)
+
+    # Utility
+
+    auto_energy          = Setting(0.0)
+    auto_harmonic_number = Setting(1)
+
+    # Advanced
+    use_stokes = Setting(1)
+
+    energy_step     = None
+    power_step      = None
+    current_step    = None
+    total_steps     = None
+    start_event     = True
+    compute_power   = False
+    integrated_flux = None
+    power_density   = None
+
+    cumulated_energies = None
+    cumulated_integrated_flux = None
+    cumulated_power_density = None
+    cumulated_power = None
+
+
+    def __init__(self):
+        super().__init__(show_energy_spread=True)
+
+        tab_shadow = oasysgui.createTabPage(self.tabs_control_area, "Shadow4")
+        tab_spdiv  = oasysgui.createTabPage(self.tabs_control_area, "Position/Divergence")
+        tab_util   = oasysgui.createTabPage(self.tabs_control_area, "Utility")
 
         ####################################################################################
         # SHADOW
@@ -169,7 +237,7 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
         oasysgui.lineEdit(left_box_1, self, "number_of_rays", "Number of Rays", tooltip="Number of Rays", labelWidth=250, valueType=int, orientation="horizontal")
         oasysgui.lineEdit(left_box_1, self, "seed", "Seed", tooltip="Seed (0=clock)", labelWidth=250, valueType=int, orientation="horizontal")
 
-        gui.comboBox(left_box_1, self, "use_harmonic", label="Photon Energy Setting",
+        gui.comboBox(left_box_1, self, "use_harmonic", label="Photon Energy",
                      items=["Harmonic", "Other", "Range"], labelWidth=260,
                      callback=self.set_WFUseHarmonic, sendSelectedValue=False, orientation="horizontal")
 
@@ -195,45 +263,14 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
 
         self.set_WFUseHarmonic()
 
-        polarization_box = oasysgui.widgetBox(tab_shadow, "Polarization", addSpace=False, orientation="vertical", height=140)
+        gui.comboBox(tab_spdiv, self, "distribution_source", label="Distribution Source", labelWidth=310,
+                     items=["SRW Calculation", "SRW Files", "ASCII Files"], orientation="horizontal", callback=self.set_DistributionSource)
 
-        gui.comboBox(polarization_box, self, "polarization", label="Polarization", labelWidth=310,
-                     items=["No", "Yes"], orientation="horizontal", callback=self.set_Polarization)
+        self.srw_box       = oasysgui.widgetBox(tab_spdiv, "", addSpace=False, orientation="vertical", height=550)
+        self.srw_files_box = oasysgui.widgetBox(tab_spdiv, "", addSpace=False, orientation="vertical", height=550)
+        self.ascii_box     = oasysgui.widgetBox(tab_spdiv, "", addSpace=False, orientation="vertical", height=550)
 
-        self.ewp_box_8 = oasysgui.widgetBox(polarization_box, "", addSpace=False, orientation="vertical")
-
-        gui.comboBox(self.ewp_box_8, self, "coherent_beam", label="Coherent Beam", labelWidth=310,
-                     items=["No", "Yes"], orientation="horizontal")
-
-        oasysgui.lineEdit(self.ewp_box_8, self, "phase_diff", "Phase Difference [deg,0=linear,+90=ell/right]", labelWidth=310, valueType=float, orientation="horizontal")
-        oasysgui.lineEdit(self.ewp_box_8, self, "polarization_degree", "Polarization Degree [cos_s/(cos_s+sin_s)]", labelWidth=310, valueType=float, orientation="horizontal")
-
-        self.set_Polarization()
-
-        ##############################
-
-        left_box_4 = oasysgui.widgetBox(tab_shadow, "Reject Rays", addSpace=False, orientation="vertical", height=140)
-
-        gui.comboBox(left_box_4, self, "optimize_source", label="Optimize Source", items=["No", "Using file with phase/space volume)", "Using file with slit/acceptance"],
-                     labelWidth=120, callback=self.set_OptimizeSource, orientation="horizontal")
-        self.optimize_file_name_box       = oasysgui.widgetBox(left_box_4, "", addSpace=False, orientation="vertical", height=80)
-
-        file_box = oasysgui.widgetBox(self.optimize_file_name_box, "", addSpace=True, orientation="horizontal", height=25)
-
-        self.le_optimize_file_name = oasysgui.lineEdit(file_box, self, "optimize_file_name", "File Name", labelWidth=100,  valueType=str, orientation="horizontal")
-
-        gui.button(file_box, self, "...", callback=self.selectOptimizeFile)
-
-        oasysgui.lineEdit(self.optimize_file_name_box, self, "max_number_of_rejected_rays", "Max number of rejected rays (set 0 for infinity)", labelWidth=280,  valueType=int, orientation="horizontal")
-
-        self.set_OptimizeSource()
-
-        adv_other_box = oasysgui.widgetBox(tab_shadow, "Optional file output", addSpace=False, orientation="vertical")
-
-        gui.comboBox(adv_other_box, self, "file_to_write_out", label="Files to write out", labelWidth=120,
-                     items=["None", "Begin.dat", "Debug (begin.dat + start.xx/end.xx)"],
-                     sendSelectedValue=False, orientation="horizontal")
-
+    
         ####################################################################################
         # SRW
 
@@ -282,7 +319,6 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
 
         tab_und = oasysgui.tabWidget(tab_ls)
 
-        tab_mach = oasysgui.createTabPage(tab_und, "Machine Parameters")
         tab_id   = oasysgui.createTabPage(tab_und, "ID Parameters")
         tab_traj = oasysgui.createTabPage(tab_und, "Trajectory")
 
@@ -294,7 +330,7 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
         oasysgui.lineEdit(tab_dim, self, "number_of_periods", "Number of Periods", labelWidth=260, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(tab_dim, self, "horizontal_central_position", "Horizontal Central Position [m]", labelWidth=260, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(tab_dim, self, "vertical_central_position", "Vertical Central Position [m]", labelWidth=260, valueType=float, orientation="horizontal")
-        oasysgui.lineEdit(tab_dim, self, "longitudinal_central_position", "Longitudinal Central Position [m]", labelWidth=260, valueType=float, orientation="horizontal", callback=self.manageWaistPosition)
+        oasysgui.lineEdit(tab_dim, self, "longitudinal_central_position", "Longitudinal Central Position [m]", labelWidth=260, valueType=float, orientation="horizontal", callback=self.manage_waist_position)
 
         self.warning_label = oasysgui.widgetLabel(tab_dim, "  Warning: The source will be positioned at the center\n" +
                                                   "  of the ID: the relative distance of the first optical\n" +
@@ -339,17 +375,6 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
                      sendSelectedValue=False, orientation="horizontal")
         gui.button(symmetry_v_box, self, "?", callback=self.open_help, width=12)
 
-        oasysgui.lineEdit(tab_mach, self, "electron_energy_in_GeV", "Energy [GeV]", labelWidth=260, valueType=float, orientation="horizontal", callback=self.set_harmonic_energy)
-        oasysgui.lineEdit(tab_mach, self, "electron_energy_spread", "Energy Spread", labelWidth=260, valueType=float, orientation="horizontal")
-        oasysgui.lineEdit(tab_mach, self, "ring_current", "Ring Current [A]", labelWidth=260, valueType=float, orientation="horizontal")
-        
-        gui.separator(tab_mach)
-
-        oasysgui.lineEdit(tab_mach, self, "electron_beam_size_h",       "Horizontal Beam Size [m]", labelWidth=230, valueType=float, orientation="horizontal")
-        oasysgui.lineEdit(tab_mach, self, "electron_beam_size_v",       "Vertical Beam Size [m]",  labelWidth=230, valueType=float, orientation="horizontal")
-        oasysgui.lineEdit(tab_mach, self, "electron_beam_divergence_h", "Horizontal Beam Divergence [rad]", labelWidth=230, valueType=float, orientation="horizontal")
-        oasysgui.lineEdit(tab_mach, self, "electron_beam_divergence_v", "Vertical Beam Divergence [rad]", labelWidth=230, valueType=float, orientation="horizontal")
-
         gui.comboBox(tab_traj, self, "type_of_initialization", label="Trajectory Initialization", labelWidth=140,
                      items=["Automatic", "At Fixed Position", "Sampled from Phase Space"],
                      callback=self.set_TypeOfInitialization,
@@ -380,8 +405,8 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
         oasysgui.lineEdit(box, self, "source_dimension_wf_v_slit_gap", "V Slit Gap [m]", labelWidth=130, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(box, self, "source_dimension_wf_v_slit_c", "  Center [m]", labelWidth=50, valueType=float, orientation="horizontal")
 
-        oasysgui.lineEdit(left_box_3, self, "source_dimension_wf_h_slit_points", "H Slit Points", labelWidth=250, valueType=int, orientation="horizontal", callback=self.setDataX)
-        oasysgui.lineEdit(left_box_3, self, "source_dimension_wf_v_slit_points", "V Slit Points", labelWidth=250, valueType=int, orientation="horizontal", callback=self.setDataY)
+        oasysgui.lineEdit(left_box_3, self, "source_dimension_wf_h_slit_points", "H Slit Points", labelWidth=250, valueType=int, orientation="horizontal", callback=self.set_data_x)
+        oasysgui.lineEdit(left_box_3, self, "source_dimension_wf_v_slit_points", "V Slit Points", labelWidth=250, valueType=int, orientation="horizontal", callback=self.set_data_y)
         oasysgui.lineEdit(left_box_3, self, "source_dimension_wf_distance", "Propagation Distance [m]\n(relative to the center of the ID)", labelWidth=250, valueType=float, orientation="horizontal")
 
         left_box_4 = oasysgui.widgetBox(tab_wf, "Size Distribution (Back) Propagation Parameters", addSpace=False, orientation="vertical")
@@ -480,20 +505,64 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
         view_box_1 = oasysgui.widgetBox(view_box, "", addSpace=False, orientation="vertical", width=350)
 
         self.cumulated_view_type_combo = gui.comboBox(view_box_1, self, "cumulated_view_type", label="Show Plots",
-                                            labelWidth=220,
-                                            items=["No", "Yes"],
-                                            callback=self.set_CumulatedPlotQuality, sendSelectedValue=False, orientation="horizontal")
+                                                      labelWidth=220,
+                                                      items=["No", "Yes"],
+                                                      callback=self.set_cumulated_plot_quality, sendSelectedValue=False, orientation="horizontal")
 
 
         self.cumulated_tabs = oasysgui.tabWidget(cumulated_plot_tab)
 
-        self.initializeCumulatedTabs()
+        self.initialize_cumulated_tabs()
 
         self.set_DistributionSource()
 
         gui.rubber(self.mainArea)
 
-    def initializeCumulatedTabs(self):
+    ###################################################################################
+    # Utils from HybridCalculator
+    ###################################################################################
+
+    def _gamma(self):
+        return gamma(HybridUndulatorInputParameters(electron_beam=ElectronBeam(energy_in_GeV=self.electron_energy_in_GeV)))
+
+    def _resonance_energy(self):
+        return resonance_energy(input_parameters=HybridUndulatorInputParameters(
+                                        electron_beam=ElectronBeam(energy_in_GeV=self.electron_energy_in_GeV),
+                                        Kh=self.Kh,
+                                        Kv=self.Kv,
+                                        undulator_period=self.undulator_period),
+                                harmonic=self.harmonic_number)
+
+    def _get_default_initial_z(self):
+        return get_default_initial_z(HybridUndulatorInputParameters(
+                                        undulator_period=self.undulator_period,
+                                        number_of_periods=self.number_of_periods,
+                                        longitudinal_central_position=self.longitudinal_central_position))
+
+    def _is_canted_undulator(self):
+        return is_canted_undulator(HybridUndulatorInputParameters(longitudinal_central_position=self.longitudinal_central_position))
+
+    def _get_source_slit_data(self, direction):
+        return get_source_slit_data(HybridUndulatorInputParameters(
+                                        auto_expand=self.auto_expand,
+                                        source_dimension_wf_h_slit_points = self.source_dimension_wf_h_slit_points,
+                                        source_dimension_wf_v_slit_points = self.source_dimension_wf_v_slit_points,
+                                        source_dimension_wf_h_slit_gap = self.source_dimension_wf_h_slit_gap,
+                                        source_dimension_wf_v_slit_gap = self.source_dimension_wf_v_slit_gap),
+                                    direction)
+
+    def _get_which_waist_position_auto(self):
+        input_parameters = HybridUndulatorInputParameters(
+                                which_waist=self.which_waist,
+                                waist_position_auto_h=self.waist_position_auto_h,
+                                waist_position_auto_v=self.waist_position_auto_v )
+        set_which_waist(input_parameters)
+
+        return input_parameters.waist_position_auto
+
+    #######################################################################################
+
+    def initialize_cumulated_tabs(self):
         current_tab = self.cumulated_tabs.currentIndex()
 
         self.cumulated_tabs.removeTab(2)
@@ -512,25 +581,25 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
 
         self.cumulated_tabs.setCurrentIndex(current_tab)
 
-    def manageWaistPosition(self):
-        is_canted = BL.is_canted_undulator(self)
+    def manage_waist_position(self):
+        is_canted = self._is_canted_undulator()
 
         self.warning_label.setVisible(is_canted)
-        self.initializeWaistPositionTab(show=is_canted)
-        self.initializeWaistPositionPlotTab(show=(is_canted and self.waist_position_calculation==1))
+        self.initialize_waist_position_tab(show=is_canted)
+        self.initialize_waist_position_plot_tab(show=(is_canted and self.waist_position_calculation == 1))
 
-    def initializeWaistPositionTab(self, show=True):
+    def initialize_waist_position_tab(self, show=True):
         if show and self.tab_pos.count() == 1:
             tab_waist   = oasysgui.createTabPage(self.tab_pos, "Waist Position")
 
             gui.comboBox(tab_waist, self, "waist_position_calculation", label="Waist Position Calculation", labelWidth=310,
-                         items=["None", "Automatic", "User Defined"], orientation="horizontal", callback=self.set_WaistPositionCalculation)
+                         items=["None", "Automatic", "User Defined"], orientation="horizontal", callback=self.set_waist_position_calculation)
 
             self.box_none     = oasysgui.widgetBox(tab_waist, "", addSpace=False, orientation="vertical", height=350)
             self.box_auto     = oasysgui.widgetBox(tab_waist, "", addSpace=False, orientation="vertical", height=350)
 
             gui.comboBox(self.box_auto, self, "waist_back_propagation_parameters", label="Propagation Parameters", labelWidth=250,
-                         items=["Same as Source", "Different"], orientation="horizontal", callback=self.set_WaistBackPropagationParameters)
+                         items=["Same as Source", "Different"], orientation="horizontal", callback=self.set_waist_back_propagation_parameters)
 
             self.waist_param_box_1 = oasysgui.widgetBox(self.box_auto, "", addSpace=False, orientation="vertical", height=110)
             self.waist_param_box_2 = oasysgui.widgetBox(self.box_auto, "", addSpace=False, orientation="vertical", height=110)
@@ -552,7 +621,7 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
                          items=["Horizontal", "Vertical", "Both (middle point)"], orientation="horizontal",
                          callback=self.set_which_waist)
 
-            self.set_WaistBackPropagationParameters()
+            self.set_waist_back_propagation_parameters()
 
             le = oasysgui.lineEdit(self.box_auto, self, "waist_position_auto", "Waist Position (relative to ID center) [m]", labelWidth=265, valueType=float, orientation="horizontal")
             le.setReadOnly(True)
@@ -568,12 +637,12 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
 
             oasysgui.lineEdit(self.box_user_def, self, "waist_position_user_defined", "Waist Position (relative to ID center) [m]", labelWidth=265, valueType=float, orientation="horizontal")
 
-            self.set_WaistPositionCalculation()
+            self.set_waist_position_calculation()
 
         elif not show and self.tab_pos.count() == 2:
             self.tab_pos.removeTab(1)
 
-    def initializeWaistPositionPlotTab(self, show=True):
+    def initialize_waist_position_plot_tab(self, show=True):
         if show and self.main_tabs.count() == 3:
             waist_tab = oasysgui.createTabPage(self.main_tabs, "Waist Position for Canted Undulator")
 
@@ -595,35 +664,35 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
             self.main_tabs.removeTab(3)
             self.waist_axes = None
 
-    def set_WaistPositionCalculation(self):
+    def set_waist_position_calculation(self):
         self.box_none.setVisible(self.waist_position_calculation==0)
         self.box_auto.setVisible(self.waist_position_calculation==1)
         self.box_user_def.setVisible(self.waist_position_calculation==2)
 
-        self.initializeWaistPositionPlotTab(show=(self.waist_position_calculation==1))
+        self.initialize_waist_position_plot_tab(show=(self.waist_position_calculation == 1))
 
-    def set_WaistBackPropagationParameters(self):
+    def set_waist_back_propagation_parameters(self):
         self.waist_param_box_1.setVisible(self.waist_back_propagation_parameters==0)
         self.waist_param_box_2.setVisible(self.waist_back_propagation_parameters==1)
 
-    def set_CumulatedPlotQuality(self):
+    def set_cumulated_plot_quality(self):
         if not self.cumulated_power is None:
-            self.initializeCumulatedTabs()
+            self.initialize_cumulated_tabs()
 
             self.plot_cumulated_results(True)
 
     def set_auto_expand(self):
         self.cb_auto_expand_rays.setEnabled(self.auto_expand==1)
 
-        self.setDataXY()
+        self.set_data_xy()
 
-    def setDataXY(self):
-        self.setDataX()
-        self.setDataY()
+    def set_data_xy(self):
+        self.set_data_x()
+        self.set_data_y()
 
-    def setDataX(self):
+    def set_data_x(self):
         source_dimension_wf_h_slit_points, \
-        source_dimension_wf_h_slit_gap = BL.get_source_slit_data(self, direction="h")
+        source_dimension_wf_h_slit_gap = self._get_source_slit_data(direction="h")
 
         x2 = 0.5 * source_dimension_wf_h_slit_gap
         x1 = -x2
@@ -633,9 +702,9 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
 
         self.dataX = 1e3 * numpy.linspace(x1, x2, source_dimension_wf_h_slit_points)
 
-    def setDataY(self):
+    def set_data_y(self):
         source_dimension_wf_v_slit_points, \
-        source_dimension_wf_v_slit_gap = BL.get_source_slit_data(self, direction="v")
+        source_dimension_wf_v_slit_gap = self._get_source_slit_data(direction="v")
 
         y2 = 0.5 * source_dimension_wf_v_slit_gap
         y1 = -y2
@@ -645,36 +714,28 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
 
         self.dataY = 1e3*numpy.linspace(y1, y2, source_dimension_wf_v_slit_points)
 
-    def onReceivingInput(self):
-        super(HybridUndulator, self).onReceivingInput()
-
-        self.initializeCumulatedTabs()
-        self.manageWaistPosition()
 
     ####################################################################################
     # GRAPHICS
     ####################################################################################
-
-    def after_change_workspace_units(self):
-        pass
 
     def set_TypeOfInitialization(self):
         self.left_box_3_1.setVisible(self.type_of_initialization==1)
         self.left_box_3_2.setVisible(self.type_of_initialization!=1)
 
     def set_z0Default(self):
-        self.moment_z = BL.get_default_initial_z(self)
+        self.moment_z = self._get_default_initial_z()
 
     def auto_set_undulator_V(self):
-        self.auto_set_undulator(VERTICAL)
+        self.auto_set_undulator(AutoUndulator.VERTICAL)
 
     def auto_set_undulator_H(self):
-        self.auto_set_undulator(HORIZONTAL)
+        self.auto_set_undulator(AutoUndulator.HORIZONTAL)
 
     def auto_set_undulator_B(self):
-        self.auto_set_undulator(BOTH)
+        self.auto_set_undulator(AutoUndulator.BOTH)
 
-    def auto_set_undulator(self, which=VERTICAL):
+    def auto_set_undulator(self, which=AutoUndulator.VERTICAL):
         if not self.distribution_source == 0: raise Exception("This calculation can be performed only for explicit SRW Calculation")
         congruence.checkStrictlyPositiveNumber(self.auto_energy, "Set Undulator at Energy")
         congruence.checkStrictlyPositiveNumber(self.auto_harmonic_number, "As Harmonic #")
@@ -682,18 +743,18 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
         congruence.checkStrictlyPositiveNumber(self.undulator_period, "Period Length")
 
         wavelength = self.auto_harmonic_number*m2ev/self.auto_energy
-        K = round(numpy.sqrt(2*(((wavelength*2*BL.gamma(self)**2)/self.undulator_period)-1)), 6)
+        K = round(numpy.sqrt(2*(((wavelength*2*self._gamma()**2)/self.undulator_period)-1)), 6)
 
-        if which == VERTICAL:
+        if which == AutoUndulator.VERTICAL:
             self.Kv = K
             self.Kh = 0.0
 
-        if which == BOTH:
+        if which == AutoUndulator.BOTH:
             Kboth = round(K / numpy.sqrt(2), 6)
             self.Kv = Kboth
             self.Kh = Kboth
 
-        if which == HORIZONTAL:
+        if which == AutoUndulator.HORIZONTAL:
             self.Kh = K
             self.Kv = 0.0
 
@@ -707,7 +768,7 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
             layout = QVBoxLayout(self)
             label = QLabel("")
 
-            file = os.path.join(resources.package_dirname("orangecontrib.shadow_advanced_tools.widgets.sources"), "misc", "symmetry.png")
+            file = os.path.join(resources.package_dirname("orangecontrib.shadow4_advanced.widgets.tools"), "misc", "symmetry.png")
 
             label.setPixmap(QPixmap(file))
 
@@ -731,7 +792,7 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
 
     def set_harmonic_energy(self):
         if self.distribution_source==0 and self.use_harmonic==0:
-            self.harmonic_energy = round(BL.resonance_energy(self, harmonic=self.harmonic_number), 2)
+            self.harmonic_energy = round(self._resonance_energy(), 2)
         else:
             self.harmonic_energy = numpy.nan
 
@@ -750,15 +811,9 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
         self.set_harmonic_energy()
 
         if self.distribution_source == 0:
-            self.manageWaistPosition()
+            self.manage_waist_position()
         else:
-            self.initializeWaistPositionPlotTab(show=False)
-
-    def set_Polarization(self):
-        self.ewp_box_8.setVisible(self.polarization==1)
-
-    def set_OptimizeSource(self):
-        self.optimize_file_name_box.setVisible(self.optimize_source != 0)
+            self.initialize_waist_position_plot_tab(show=False)
 
     def set_SaveFileSRW(self):
         self.save_file_box.setVisible(self.save_srw_result == 1)
@@ -786,7 +841,7 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
         self.le_z_divergences_file.setText(oasysgui.selectFileFromDialog(self, self.z_divergences_file, "Open Z Divergences File", file_extension_filter="*.dat, *.txt"))
 
     def set_which_waist(self):
-        BL.set_which_waist(self)
+        self.waist_position_auto = self._get_which_waist_position_auto()
 
     ####################################################################################
     # SYNED
@@ -840,6 +895,13 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
     # PROCEDURES
     ####################################################################################
 
+    def run_shadow4(self, scanning_data = None):
+        do_cumulated_calculations = not scanning_data is None
+
+
+
+
+    '''
     def runShadowSource(self, do_cumulated_calculations=False):
         self.setStatusMessage("")
         self.progressBarInit()
@@ -880,6 +942,7 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
             if self.IS_DEVELOP: raise exception
 
         self.progressBarFinished()
+    '''
 
     def initializeTabs(self):
         current_tab = self.tabs.currentIndex()
@@ -919,12 +982,6 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
 
         self.tabs.setCurrentIndex(min(current_tab, len(self.tab) - 1))
 
-    def isFootprintEnabled(self):
-        return False
-
-    def enableFootprint(self, enabled=False):
-        pass
-
     def plot_results(self, beam_out, footprint_beam=None, progressBarValue=80):
         show_effective_source_size = QSettings().value("output/show-effective-source-size", 0, int) == 1
 
@@ -954,6 +1011,7 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
     def getTitles(self):
         return ["X,Z", "X',Z'", "X,X'", "Z,Z'", "Energy", "Effective Source Size"]
 
+    '''
     def sendNewBeam(self, trigger):
         self.compute_power = False
         self.energy_step = None
@@ -995,6 +1053,7 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
                 self.set_SaveFileSRW()
 
             self.runShadowSource(do_cumulated_calculations)
+    '''
 
     def cumulated_plot_data1D(self, dataX, dataY, plot_canvas_index, title="", xtitle="", ytitle=""):
         if self.cumulated_plot_canvas[plot_canvas_index] is None:
@@ -1075,3 +1134,4 @@ class HybridUndulator(GenericElement, HybridUndulatorAttributes):
 
                 raise Exception("Data not plottable: exception: " + str(e))
 
+add_widget_parameters_to_module(__name__)
