@@ -952,6 +952,8 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
     ####################################################################################
 
     def run_shadow4(self, scanning_data = None):
+        if not scanning_data: scanning_data = None
+
         self.setStatusMessage("")
         self.progressBarInit()
 
@@ -1057,10 +1059,6 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
             output_data = ShadowData(beam=output_beam,
                                      number_of_rays=self.number_of_rays,
                                      beamline=S4Beamline(light_source=light_source))
-            output_data.scanning_data = scanning_data
-
-            self.Outputs.shadow_data.send(output_data)
-            self.Outputs.trigger.send(TriggerIn(new_object=True))
 
             self.setStatusMessage("Plotting Results")
 
@@ -1091,6 +1089,9 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
                 additional_parameters["total_steps"]        = self.total_steps
 
                 output_data.scanning_data = ShadowData.ScanningData("photon_energy", self.energy, "Energy for Power Calculation", "eV", additional_parameters)
+
+            self.Outputs.shadow_data.send(output_data)
+            self.Outputs.trigger.send(TriggerIn(new_object=True))
         except Exception as exception:
             QMessageBox.critical(self, "Error", str(exception), QMessageBox.Ok)
 
