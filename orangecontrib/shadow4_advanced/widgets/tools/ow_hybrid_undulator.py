@@ -52,24 +52,21 @@ from silx.gui.plot import Plot2D
 
 from AnyQt.QtWidgets import QMessageBox, QDialog, QVBoxLayout, QLabel, QDialogButtonBox
 from AnyQt.QtGui import QPixmap, QPalette, QColor, QFont
-from AnyQt.QtCore import QSettings
 
 import orangecanvas.resources as resources
-from build.lib.syned.storage_ring.electron_beam import ElectronBeam
 
 from orangewidget import gui
 from orangewidget.settings import Setting
 
 from oasys2.widget import gui as oasysgui
 from oasys2.widget.util import congruence
-from oasys2.widget.widget import OWAction
 from oasys2.widget.util.widget_util import EmittingStream
-from oasys2.widget.util.widget_objects import TriggerIn, TriggerOut
+from oasys2.widget.util.widget_objects import TriggerIn
 from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
 from syned.beamline.optical_elements.absorbers.slit import Slit
-from syned.storage_ring.light_source import LightSource
 from syned.beamline.shape import Rectangle
+from syned.storage_ring.magnetic_structures.undulator import Undulator
 
 try:
     from orangecontrib.shadow4.widgets.gui.ow_synchrotron_source import OWSynchrotronSource
@@ -82,7 +79,7 @@ from shadow4.beamline.s4_beamline import S4Beamline
 
 from shadow4_advanced.hybrid.s4_hybrid_undulator_light_source import (
     S4HybridUndulatorLightSource, HybridUndulatorInputParameters, HybridUndulatorOutputParameters, HybridUndulatorListener,
-    gamma, get_default_initial_z, resonance_energy, is_canted_undulator, get_source_slit_data, set_which_waist
+    gamma, get_default_initial_z, resonance_energy, is_canted_undulator, get_source_slit_data, set_which_waist, K_from_magnetic_field, S4HybridUndulator
 )
 
 import scipy.constants as codata
@@ -221,6 +218,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
     cumulated_power_density = None
     cumulated_power = None
 
+    do_cumulated_calculations = False
 
     def __init__(self):
         super().__init__(show_energy_spread=True)
@@ -239,7 +237,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
 
         gui.comboBox(left_box_1, self, "use_harmonic", label="Photon Energy",
                      items=["Harmonic", "Other", "Range"], labelWidth=260,
-                     callback=self.set_WFUseHarmonic, sendSelectedValue=False, orientation="horizontal")
+                     callback=self.set_wf_use_harmonic, sendSelectedValue=False, orientation="horizontal")
 
         self.use_harmonic_box_1 = oasysgui.widgetBox(left_box_1, "", addSpace=False, orientation="vertical", height=80)
         oasysgui.lineEdit(self.use_harmonic_box_1, self, "harmonic_number", "Harmonic #", labelWidth=260, valueType=int, orientation="horizontal", callback=self.set_harmonic_energy)
@@ -261,10 +259,10 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
         oasysgui.lineEdit(self.use_harmonic_box_3, self, "energy_to", "Photon Energy to [eV]", labelWidth=260, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(self.use_harmonic_box_3, self, "energy_points", "Nr. of Energy values", labelWidth=260, valueType=int, orientation="horizontal")
 
-        self.set_WFUseHarmonic()
+        self.set_wf_use_harmonic()
 
         gui.comboBox(tab_spdiv, self, "distribution_source", label="Distribution Source", labelWidth=310,
-                     items=["SRW Calculation", "SRW Files", "ASCII Files"], orientation="horizontal", callback=self.set_DistributionSource)
+                     items=["SRW Calculation", "SRW Files", "ASCII Files"], orientation="horizontal", callback=self.set_distribution_source)
 
         self.srw_box       = oasysgui.widgetBox(tab_spdiv, "", addSpace=False, orientation="vertical", height=550)
         self.srw_files_box = oasysgui.widgetBox(tab_spdiv, "", addSpace=False, orientation="vertical", height=550)
@@ -284,7 +282,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
                          items=["Simple", "Accurate"], orientation="horizontal")
 
         gui.comboBox(self.srw_box, self, "save_srw_result", label="Save SRW results", labelWidth=310,
-                     items=["No", "Yes"], orientation="horizontal", callback=self.set_SaveFileSRW)
+                     items=["No", "Yes"], orientation="horizontal", callback=self.set_save_file_srw)
 
         self.save_file_box = oasysgui.widgetBox(self.srw_box, "", addSpace=False, orientation="vertical")
         self.save_file_box_empty = oasysgui.widgetBox(self.srw_box, "", addSpace=False, orientation="vertical", height=55)
@@ -293,15 +291,15 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
 
         self.le_source_dimension_srw_file = oasysgui.lineEdit(file_box, self, "source_dimension_srw_file", "Source Dimension File", labelWidth=140,  valueType=str, orientation="horizontal")
 
-        gui.button(file_box, self, "...", callback=self.selectSourceDimensionFile)
+        gui.button(file_box, self, "...", callback=self.select_source_dimension_file)
 
         file_box = oasysgui.widgetBox(self.save_file_box, "", addSpace=False, orientation="horizontal", height=25)
 
         self.le_angular_distribution_srw_file = oasysgui.lineEdit(file_box, self, "angular_distribution_srw_file", "Angular Distribution File", labelWidth=140,  valueType=str, orientation="horizontal")
 
-        gui.button(file_box, self, "...", callback=self.selectAngularDistributionFile)
+        gui.button(file_box, self, "...", callback=self.select_angular_distribution_file)
 
-        self.set_SaveFileSRW()
+        self.set_save_file_srw()
 
         tab_ls = oasysgui.createTabPage(tabs_srw, "Undulator Setting")
         tab_wf = oasysgui.createTabPage(tabs_srw, "Wavefront Setting")
@@ -339,7 +337,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
 
         gui.comboBox(tab_dim, self, "magnetic_field_from", label="Magnetic Field", labelWidth=350,
                      items=["From K", "From B"],
-                     callback=self.set_MagneticField,
+                     callback=self.set_magnetic_field,
                      sendSelectedValue=False, orientation="horizontal")
 
         container = oasysgui.widgetBox(tab_dim, "", addSpace=False, orientation="horizontal")
@@ -360,7 +358,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
         oasysgui.lineEdit(self.magnetic_field_box_2_h, self, "Bh", "B [T]", labelWidth=70, valueType=float, orientation="horizontal", callback=self.set_harmonic_energy)
         oasysgui.lineEdit(self.magnetic_field_box_2_v, self, "Bv", " ", labelWidth=2, valueType=float, orientation="horizontal", callback=self.set_harmonic_energy)
 
-        self.set_MagneticField()
+        self.set_magnetic_field()
 
         oasysgui.lineEdit(horizontal_box, self, "initial_phase_horizontal", "\u03c6\u2080 [rad]", labelWidth=70, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(vertical_box, self, "initial_phase_vertical", " ", labelWidth=2, valueType=float, orientation="horizontal")
@@ -377,7 +375,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
 
         gui.comboBox(tab_traj, self, "type_of_initialization", label="Trajectory Initialization", labelWidth=140,
                      items=["Automatic", "At Fixed Position", "Sampled from Phase Space"],
-                     callback=self.set_TypeOfInitialization,
+                     callback=self.set_type_of_initialization,
                      sendSelectedValue=False, orientation="horizontal")
 
         self.left_box_3_1 = oasysgui.widgetBox(tab_traj, "", addSpace=False, orientation="vertical", height=160)
@@ -389,12 +387,12 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
         box = oasysgui.widgetBox(self.left_box_3_1, "", addSpace=False, orientation="horizontal")
 
         oasysgui.lineEdit(box, self, "moment_z", "z\u2080 [m]", labelWidth=160, valueType=float, orientation="horizontal")
-        gui.button(box, self, "Auto", width=35, callback=self.set_z0Default)
+        gui.button(box, self, "Auto", width=35, callback=self.set_z0_default)
 
         oasysgui.lineEdit(self.left_box_3_1, self, "moment_xp", "x'\u2080 [rad]", labelWidth=200, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(self.left_box_3_1, self, "moment_yp", "y'\u2080 [rad]", labelWidth=200, valueType=float, orientation="horizontal")
 
-        self.set_TypeOfInitialization()
+        self.set_type_of_initialization()
 
         left_box_3 = oasysgui.widgetBox(tab_wf, "Divergence Distribution Propagation Parameters", addSpace=False, orientation="vertical")
 
@@ -433,13 +431,13 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
 
         self.le_source_dimension_srw_file = oasysgui.lineEdit(file_box, self, "source_dimension_srw_file", "Source Dimension File", labelWidth=180,  valueType=str, orientation="vertical")
 
-        gui.button(file_box, self, "...", height=45, callback=self.selectSourceDimensionFile)
+        gui.button(file_box, self, "...", height=45, callback=self.select_source_dimension_file)
 
         file_box = oasysgui.widgetBox(self.srw_files_box, "", addSpace=True, orientation="horizontal", height=45)
 
         self.le_angular_distribution_srw_file = oasysgui.lineEdit(file_box, self, "angular_distribution_srw_file", "Angular Distribution File", labelWidth=180,  valueType=str, orientation="vertical")
 
-        gui.button(file_box, self, "...", height=45, callback=self.selectAngularDistributionFile)
+        gui.button(file_box, self, "...", height=45, callback=self.select_angular_distribution_file)
 
 
         ####################################################################################
@@ -451,25 +449,25 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
 
         self.le_x_positions_file = oasysgui.lineEdit(file_box, self, "x_positions_file", "X Positions File", labelWidth=180,  valueType=str, orientation="vertical")
 
-        gui.button(file_box, self, "...", height=45, callback=self.selectXPositionsFile)
+        gui.button(file_box, self, "...", height=45, callback=self.select_x_positions_file)
 
         file_box = oasysgui.widgetBox(self.ascii_box, "", addSpace=True, orientation="horizontal", height=45)
 
         self.le_z_positions_file = oasysgui.lineEdit(file_box, self, "z_positions_file", "Z Positions File", labelWidth=180,  valueType=str, orientation="vertical")
 
-        gui.button(file_box, self, "...", height=45, callback=self.selectZPositionsFile)
+        gui.button(file_box, self, "...", height=45, callback=self.select_z_positions_file)
 
         file_box = oasysgui.widgetBox(self.ascii_box, "", addSpace=True, orientation="horizontal", height=45)
 
         self.le_x_divergences_file = oasysgui.lineEdit(file_box, self, "x_divergences_file", "X Divergences File", labelWidth=180,  valueType=str, orientation="vertical")
 
-        gui.button(file_box, self, "...", height=45, callback=self.selectXDivergencesFile)
+        gui.button(file_box, self, "...", height=45, callback=self.select_x_divergences_file)
 
         file_box = oasysgui.widgetBox(self.ascii_box, "", addSpace=True, orientation="horizontal", height=45)
 
         self.le_z_divergences_file = oasysgui.lineEdit(file_box, self, "z_divergences_file", "Z Divergences File", labelWidth=180,  valueType=str, orientation="vertical")
 
-        gui.button(file_box, self, "...", height=45, callback=self.selectZDivergencesFile)
+        gui.button(file_box, self, "...", height=45, callback=self.select_z_divergences_file)
 
         gui.separator(self.ascii_box)
 
@@ -481,7 +479,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
         gui.separator(self.ascii_box)
 
         gui.comboBox(self.ascii_box, self, "combine_strategy", label="2D Distribution Creation Strategy", labelWidth=310,
-                     items=["Sqrt(Product)", "Sqrt(Quadratic Sum)", "Convolution", "Average"], orientation="horizontal", callback=self.set_SaveFileSRW)
+                     items=["Sqrt(Product)", "Sqrt(Quadratic Sum)", "Convolution", "Average"], orientation="horizontal", callback=self.set_save_file_srw)
 
         ####################################################################################
         # Utility
@@ -513,8 +511,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
         self.cumulated_tabs = oasysgui.tabWidget(cumulated_plot_tab)
 
         self.initialize_cumulated_tabs()
-
-        self.set_DistributionSource()
+        self.set_distribution_source()
 
         gui.rubber(self.mainArea)
 
@@ -523,24 +520,18 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
     ###################################################################################
 
     def _gamma(self):
-        return gamma(HybridUndulatorInputParameters(electron_beam=ElectronBeam(energy_in_GeV=self.electron_energy_in_GeV)))
+        return gamma(electron_beam=self.get_electron_beam())
 
     def _resonance_energy(self):
-        return resonance_energy(input_parameters=HybridUndulatorInputParameters(
-                                        electron_beam=ElectronBeam(energy_in_GeV=self.electron_energy_in_GeV),
-                                        Kh=self.Kh,
-                                        Kv=self.Kv,
-                                        undulator_period=self.undulator_period),
+        return resonance_energy(electron_beam=self.get_electron_beam(),
+                                magnetic_structure=self.get_magnetic_structure(),
                                 harmonic=self.harmonic_number)
 
     def _get_default_initial_z(self):
-        return get_default_initial_z(HybridUndulatorInputParameters(
-                                        undulator_period=self.undulator_period,
-                                        number_of_periods=int(self.number_of_periods),
-                                        longitudinal_central_position=self.longitudinal_central_position))
+        return get_default_initial_z(magnetic_structure=self.get_magnetic_structure(), longitudinal_central_position=self.longitudinal_central_position)
 
     def _is_canted_undulator(self):
-        return is_canted_undulator(HybridUndulatorInputParameters(longitudinal_central_position=self.longitudinal_central_position))
+        return is_canted_undulator(longitudinal_central_position=self.longitudinal_central_position)
 
     def _get_source_slit_data(self, direction):
         return get_source_slit_data(HybridUndulatorInputParameters(
@@ -643,7 +634,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
             self.tab_pos.removeTab(1)
 
     def initialize_waist_position_plot_tab(self, show=True):
-        if show and self.main_tabs.count() == 3:
+        if show and self.main_tabs.count() == 4:
             waist_tab = oasysgui.createTabPage(self.main_tabs, "Waist Position for Canted Undulator")
 
             figure = Figure(figsize=(700, 500))
@@ -660,8 +651,8 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
 
             waist_tab.layout().addWidget(self.waist_figure)
 
-        elif not show and self.main_tabs.count() == 4:
-            self.main_tabs.removeTab(3)
+        elif not show and self.main_tabs.count() == 5:
+            self.main_tabs.removeTab(4)
             self.waist_axes = None
 
     def set_waist_position_calculation(self):
@@ -719,11 +710,11 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
     # GRAPHICS
     ####################################################################################
 
-    def set_TypeOfInitialization(self):
+    def set_type_of_initialization(self):
         self.left_box_3_1.setVisible(self.type_of_initialization==1)
         self.left_box_3_2.setVisible(self.type_of_initialization!=1)
 
-    def set_z0Default(self):
+    def set_z0_default(self):
         self.moment_z = self._get_default_initial_z()
 
     def auto_set_undulator_V(self):
@@ -758,7 +749,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
             self.Kh = K
             self.Kv = 0.0
 
-        self.set_WFUseHarmonic()
+        self.set_wf_use_harmonic()
 
     class ShowHelpDialog(QDialog):
 
@@ -782,7 +773,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
         dialog = HybridUndulator.ShowHelpDialog(parent=self)
         dialog.show()
 
-    def set_MagneticField(self):
+    def set_magnetic_field(self):
         self.magnetic_field_box_1_h.setVisible(self.magnetic_field_from==0)
         self.magnetic_field_box_2_h.setVisible(self.magnetic_field_from==1)
         self.magnetic_field_box_1_v.setVisible(self.magnetic_field_from==0)
@@ -796,48 +787,46 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
         else:
             self.harmonic_energy = numpy.nan
 
-    def set_WFUseHarmonic(self):
+    def set_wf_use_harmonic(self):
         self.use_harmonic_box_1.setVisible(self.use_harmonic==0)
         self.use_harmonic_box_2.setVisible(self.use_harmonic==1)
         self.use_harmonic_box_3.setVisible(self.use_harmonic==2)
 
         self.set_harmonic_energy()
 
-    def set_DistributionSource(self):
+    def set_distribution_source(self):
         self.srw_box.setVisible(self.distribution_source == 0)
         self.srw_files_box.setVisible(self.distribution_source == 1)
         self.ascii_box.setVisible(self.distribution_source == 2)
 
         self.set_harmonic_energy()
 
-        if self.distribution_source == 0:
-            self.manage_waist_position()
-        else:
-            self.initialize_waist_position_plot_tab(show=False)
+        if self.distribution_source == 0: self.manage_waist_position()
+        else:                             self.initialize_waist_position_plot_tab(show=False)
 
-    def set_SaveFileSRW(self):
+    def set_save_file_srw(self):
         self.save_file_box.setVisible(self.save_srw_result == 1)
         self.save_file_box_empty.setVisible(self.save_srw_result == 0)
 
-    def selectOptimizeFile(self):
+    def select_optimize_file(self):
         self.le_optimize_file_name.setText(oasysgui.selectFileFromDialog(self, self.optimize_file_name, "Open Optimize Source Parameters File"))
 
-    def selectSourceDimensionFile(self):
+    def select_source_dimension_file(self):
         self.le_source_dimension_srw_file.setText(oasysgui.selectFileFromDialog(self, self.source_dimension_srw_file, "Open Source Dimension File"))
 
-    def selectAngularDistributionFile(self):
+    def select_angular_distribution_file(self):
         self.le_angular_distribution_srw_file.setText(oasysgui.selectFileFromDialog(self, self.angular_distribution_srw_file, "Open Angular Distribution File"))
 
-    def selectXPositionsFile(self):
+    def select_x_positions_file(self):
         self.le_x_positions_file.setText(oasysgui.selectFileFromDialog(self, self.x_positions_file, "Open X Positions File", file_extension_filter="*.dat, *.txt"))
 
-    def selectZPositionsFile(self):
+    def select_z_positions_file(self):
         self.le_z_positions_file.setText(oasysgui.selectFileFromDialog(self, self.z_positions_file, "Open Z Positions File", file_extension_filter="*.dat, *.txt"))
 
-    def selectXDivergencesFile(self):
+    def select_x_divergences_file(self):
         self.le_x_divergences_file.setText(oasysgui.selectFileFromDialog(self, self.x_divergences_file, "Open X Divergences File", file_extension_filter="*.dat, *.txt"))
 
-    def selectZDivergencesFile(self):
+    def select_z_divergences_file(self):
         self.le_z_divergences_file.setText(oasysgui.selectFileFromDialog(self, self.z_divergences_file, "Open Z Divergences File", file_extension_filter="*.dat, *.txt"))
 
     def set_which_waist(self):
@@ -850,10 +839,12 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
     def receive_syned_data(self, data):
         if not data is None:
             try:
+                OWSynchrotronSource.receive_syned_data(self, data)
+
                 if data.get_beamline_elements_number() > 0:
                     slit_element = data.get_beamline_element_at(0)
-                    slit = slit_element.get_optical_element()
-                    coordinates = slit_element.get_coordinates()
+                    slit         = slit_element.get_optical_element()
+                    coordinates  = slit_element.get_coordinates()
 
                     if isinstance(slit, Slit) and isinstance(slit.get_boundary_shape(), Rectangle):
                         rectangle = slit.get_boundary_shape()
@@ -863,36 +854,101 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
                         self.source_dimension_wf_v_slit_gap = numpy.abs(rectangle._y_top - rectangle._y_bottom)
                         self.source_dimension_wf_v_slit_c = 0.5 * (rectangle._y_top + rectangle._y_bottom)
                         self.source_dimension_wf_distance = coordinates.p()
-                elif not data._light_source is None and isinstance(data._light_source, LightSource):
-                    light_source = data._light_source
-
-                    self.electron_energy_in_GeV = light_source._electron_beam._energy_in_GeV
-                    self.electron_energy_spread = light_source._electron_beam._energy_spread
-                    self.ring_current = light_source._electron_beam._current
-
-                    x, xp, y, yp = light_source._electron_beam.get_sigmas_all()
-
-                    self.electron_beam_size_h       = round(x, 9)
-                    self.electron_beam_size_v       = round(y, 9)
-                    self.electron_beam_divergence_h = round(xp, 10)
-                    self.electron_beam_divergence_v = round(yp, 10)
-
-                    self.Kh                = light_source._magnetic_structure._K_horizontal
-                    self.Kv                = light_source._magnetic_structure._K_vertical
-                    self.undulator_period  = light_source._magnetic_structure._period_length
-                    self.number_of_periods = int(light_source._magnetic_structure._number_of_periods) # SRW needs int
-
-                    self.set_harmonic_energy()
-                else:
-                    raise ValueError("Syned data not correct")
             except Exception as exception:
                 QMessageBox.critical(self, "Error", str(exception), QMessageBox.Ok)
 
-    def receive_specific_syned_data(self, data):
-        raise NotImplementedError()
+    def receive_specific_syned_data(self, data): pass
+
+    def populate_fields_from_magnetic_structure(self, magnetic_structure, electron_beam):
+        self.Kh                  = magnetic_structure._K_horizontal
+        self.Kv                  = magnetic_structure._K_vertical
+        self.undulator_period    = magnetic_structure._period_length
+        self.number_of_periods   = int(magnetic_structure._number_of_periods)  # SRW needs int
+        self.magnetic_field_from = 0
+
+        self.set_magnetic_field()
+        self.set_harmonic_energy()
+
+    def check_data(self):
+        OWSynchrotronSource.check_data(self)
+
+        if self.use_harmonic == 0:
+            if self.distribution_source != 0: raise Exception("Harmonic Energy can be computed only for explicit SRW Calculation")
+
+            self.harmonic_number = congruence.checkStrictlyPositiveNumber(self.harmonic_number, "Harmonic Number")
+        elif self.use_harmonic == 2:
+            if self.distribution_source != 0: raise Exception("Energy Range can be computed only for explicit SRW Calculation")
+
+            self.energy        = congruence.checkStrictlyPositiveNumber(self.energy, "Photon Energy From")
+            self.energy_to     = congruence.checkStrictlyPositiveNumber(self.energy_to, "Photon Energy To")
+            self.energy_points = congruence.checkStrictlyPositiveNumber(self.energy_points, "Nr. Energy Values")
+            congruence.checkGreaterThan(self.energy_to, self.energy, "Photon Energy To", "Photon Energy From")
+        else:
+            self.energy = congruence.checkStrictlyPositiveNumber(self.energy, "Photon Energy")
+
+    def check_magnetic_structure(self):
+        if self.magnetic_field_from == 0:
+            self.Kh = congruence.checkPositiveNumber(self.Kh, "K Horizontal")
+            self.Kv = congruence.checkPositiveNumber(self.Kv, "K Vertical")
+        else:
+            self.Bh = congruence.checkPositiveNumber(self.Bh, "B Horizontal")
+            self.Bv = congruence.checkPositiveNumber(self.Bv, "B Vertical")
+
+        self.undulator_period  = congruence.checkStrictlyPositiveNumber(self.undulator_period , "Undulator Period")
+        self.number_of_periods = congruence.checkStrictlyPositiveNumber(self.number_of_periods, "Number of Periods")
+
+    def get_magnetic_structure(self):
+        return S4HybridUndulator(
+            K_vertical=self.Kv if self.magnetic_field_from == 0 else K_from_magnetic_field(self.Bv),
+            K_horizontal=self.Kh if self.magnetic_field_from == 0 else K_from_magnetic_field(self.Bh),
+            number_of_periods=self.number_of_periods,
+            period_length=self.undulator_period
+        )
 
     ####################################################################################
-    # PROCEDURES
+    # LOOPS - TRIGGER
+    ####################################################################################
+
+    def set_trigger_parameters_for_sources(self, trigger):
+        self.compute_power             = False
+        self.energy_step               = None
+        self.do_cumulated_calculations = False
+
+        if trigger and trigger.new_object == True:
+            if not trigger.has_additional_parameter("start_event"):
+                self.cumulated_energies        = None
+                self.cumulated_integrated_flux = None
+                self.cumulated_power_density   = None
+                self.cumulated_power           = None
+
+            if trigger.has_additional_parameter("energy_value") and trigger.has_additional_parameter("energy_step"):
+                self.compute_power             = True
+                self.use_harmonic              = 1
+                self.distribution_source       = 0
+                self.save_srw_result           = 0
+                self.do_cumulated_calculations = True
+
+                if trigger.has_additional_parameter("start_event") and trigger.get_additional_parameter("start_event") == True:
+                    self.cumulated_energies        = None
+                    self.cumulated_integrated_flux = None
+                    self.cumulated_power_density   = None
+                    self.cumulated_power           = None
+
+                self.energy       = trigger.get_additional_parameter("energy_value")
+                self.energy_step  = trigger.get_additional_parameter("energy_step")
+                self.power_step   = trigger.get_additional_parameter("power_step")
+                self.current_step = trigger.get_additional_parameter("current_step")
+                self.total_steps  = trigger.get_additional_parameter("total_steps")
+                self.start_event  = trigger.get_additional_parameter("start_event")
+
+                self.set_wf_use_harmonic()
+                self.set_distribution_source()
+                self.set_save_file_srw()
+
+        OWSynchrotronSource.set_trigger_parameters_for_sources(self, trigger)
+
+    ####################################################################################
+    # SHADOW
     ####################################################################################
 
     def run_shadow4(self, scanning_data = None):
@@ -902,8 +958,11 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
         sys.stdout = EmittingStream(textWritten=self._write_stdout)
 
         try:
+            self.check_data()
+
             hybrid_input_parameters = HybridUndulatorInputParameters(
                 electron_beam                                               = self.get_electron_beam(),
+                magnetic_structure                                          = self.get_magnetic_structure(),
                 number_of_rays                                              = self.number_of_rays,
                 seed                                                        = self.seed,
                 use_harmonic                                                = self.use_harmonic,
@@ -911,13 +970,6 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
                 energy                                                      = self.energy,
                 energy_to                                                   = self.energy_to,
                 energy_points                                               = self.energy_points,
-                number_of_periods                                           = self.number_of_periods,
-                undulator_period                                            = self.undulator_period,
-                Kv                                                          = self.Kv,
-                Kh                                                          = self.Kh,
-                Bh                                                          = self.Bh,
-                Bv                                                          = self.Bv,
-                magnetic_field_from                                         = self.magnetic_field_from,
                 initial_phase_vertical                                      = self.initial_phase_vertical,
                 initial_phase_horizontal                                    = self.initial_phase_horizontal,
                 symmetry_vs_longitudinal_position_vertical                  = self.symmetry_vs_longitudinal_position_vertical,
@@ -984,9 +1036,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
             script += "\nplot_scatter(1e6 * rays[:, 0], 1e6 * rays[:, 2], title='(X,Z) in microns')"
             self.shadow4_script.set_code(script)
 
-            do_cumulated_calculations = scanning_data is not None
-
-            params = {"do_cumulated_calculations" : do_cumulated_calculations}
+            params = {"do_cumulated_calculations" : self.do_cumulated_calculations}
             output_beam              = light_source.get_beam(**params)
             hybrid_output_parameters = light_source.get_output_parameters()
 
@@ -1029,7 +1079,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
 
                     self._plot_waist(hybrid_output_parameters)
 
-            self._plot_cumulated_results(do_cumulated_calculations)
+            self._plot_cumulated_results(self.do_cumulated_calculations)
 
             self.setStatusMessage("")
 
@@ -1048,79 +1098,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
 
         self.progressBarFinished()
 
-    def initializeTabs(self):
-        current_tab = self.tabs.currentIndex()
-
-        size = len(self.tab)
-        indexes = range(0, size)
-        for index in indexes:
-            self.tabs.removeTab(size - 1 - index)
-
-        titles = self.getTitles()
-
-        self.tab = [oasysgui.createTabPage(self.tabs, titles[0]),
-                    oasysgui.createTabPage(self.tabs, titles[1]),
-                    oasysgui.createTabPage(self.tabs, titles[2]),
-                    oasysgui.createTabPage(self.tabs, titles[3]),
-                    oasysgui.createTabPage(self.tabs, titles[4]),
-                    ]
-
-        self.plot_canvas = [None, None, None, None, None]
-
-        for tab in self.tab:
-            tab.setFixedHeight(self.IMAGE_HEIGHT)
-            tab.setFixedWidth(self.IMAGE_WIDTH)
-
-        self.tabs.setCurrentIndex(min(current_tab, len(self.tab) - 1))
-
-    def getTitles(self):
-        return ["X,Z", "X',Z'", "X,X'", "Z,Z'", "Energy", "Effective Source Size"]
-
-    '''
-    def sendNewBeam(self, trigger):
-        self.compute_power = False
-        self.energy_step = None
-
-        if trigger and trigger.new_object == True:
-            do_cumulated_calculations = False
-
-            if trigger.has_additional_parameter("seed_increment"):
-                self.seed += trigger.get_additional_parameter("seed_increment")
-
-            if not trigger.has_additional_parameter("start_event"):
-                self.cumulated_energies = None
-                self.cumulated_integrated_flux = None
-                self.cumulated_power_density = None
-                self.cumulated_power = None
-
-            if trigger.has_additional_parameter("energy_value") and trigger.has_additional_parameter("energy_step"):
-                self.compute_power = True
-                self.use_harmonic = 1
-                self.distribution_source = 0
-                self.save_srw_result = 0
-                do_cumulated_calculations = True
-
-                if trigger.has_additional_parameter("start_event") and trigger.get_additional_parameter("start_event") == True:
-                    self.cumulated_energies = None
-                    self.cumulated_integrated_flux = None
-                    self.cumulated_power_density = None
-                    self.cumulated_power = None
-
-                self.energy = trigger.get_additional_parameter("energy_value")
-                self.energy_step = trigger.get_additional_parameter("energy_step")
-                self.power_step = trigger.get_additional_parameter("power_step")
-                self.current_step = trigger.get_additional_parameter("current_step")
-                self.total_steps  = trigger.get_additional_parameter("total_steps")
-                self.start_event = trigger.get_additional_parameter("start_event")
-
-                self.set_WFUseHarmonic()
-                self.set_DistributionSource()
-                self.set_SaveFileSRW()
-
-            self.runShadowSource(do_cumulated_calculations)
-    '''
-
-    def cumulated_plot_data1D(self, dataX, dataY, plot_canvas_index, title="", xtitle="", ytitle=""):
+    def _cumulated_plot_data1D(self, dataX, dataY, plot_canvas_index, title="", xtitle="", ytitle=""):
         if self.cumulated_plot_canvas[plot_canvas_index] is None:
             self.cumulated_plot_canvas[plot_canvas_index] = oasysgui.plotWindow()
             self.cumulated_tab[plot_canvas_index].layout().addWidget(self.cumulated_plot_canvas[plot_canvas_index])
@@ -1138,7 +1116,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
         self.cumulated_plot_canvas[plot_canvas_index].setGraphYLabel(ytitle)
         self.cumulated_plot_canvas[plot_canvas_index].setGraphTitle(title)
 
-    def cumulated_plot_data2D(self, data2D, dataX, dataY, plot_canvas_index, title="", xtitle="", ytitle=""):
+    def _cumulated_plot_data2D(self, data2D, dataX, dataY, plot_canvas_index, title="", xtitle="", ytitle=""):
 
         if self.cumulated_plot_canvas[plot_canvas_index] is None:
             self.cumulated_plot_canvas[plot_canvas_index] = Plot2D()
@@ -1186,10 +1164,10 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
 
                 total_power = str(round(self.cumulated_power[-1], 2))
 
-                self.cumulated_plot_data1D(self.cumulated_energies, self.cumulated_integrated_flux, 0, "Spectral Flux", "Energy [eV]", "Flux [ph/s/0.1%BW]")
-                self.cumulated_plot_data1D(self.cumulated_energies, self.cumulated_power, 1,
+                self._cumulated_plot_data1D(self.cumulated_energies, self.cumulated_integrated_flux, 0, "Spectral Flux", "Energy [eV]", "Flux [ph/s/0.1%BW]")
+                self._cumulated_plot_data1D(self.cumulated_energies, self.cumulated_power, 1,
                                            "Cumulated Power (Total = " + total_power + " W)", "Energy [eV]", "Power [W]")
-                self.cumulated_plot_data2D(self.cumulated_power_density, self.dataX, self.dataY, 2,
+                self._cumulated_plot_data2D(self.cumulated_power_density, self.dataX, self.dataY, 2,
                                            "Power Density [W/mm^2] (Total Power = " + total_power + " W)", "X [mm]", "Y [mm]")
 
                 self.cumulated_view_type_combo.setEnabled(True)
@@ -1232,7 +1210,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
              hybrid_output_parameters.waist_position_y,
              hybrid_output_parameters.waist_size_y)
 
-        try: self.waist_axes.draw()
-        except: pass
+        try: self.waist_figure.draw()
+        except Exception as e: print(e)
 
 add_widget_parameters_to_module(__name__)
