@@ -59,23 +59,26 @@ from build.lib.syned.storage_ring.electron_beam import ElectronBeam
 
 from orangewidget import gui
 from orangewidget.settings import Setting
-from orangewidget.widget import Input, Output
 
 from oasys2.widget import gui as oasysgui
 from oasys2.widget.util import congruence
 from oasys2.widget.widget import OWAction
 from oasys2.widget.util.widget_util import EmittingStream
-from oasys2.widget.util.widget_objects import TriggerOut
+from oasys2.widget.util.widget_objects import TriggerIn, TriggerOut
 from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
-from syned.beamline.beamline import Beamline
 from syned.beamline.optical_elements.absorbers.slit import Slit
 from syned.storage_ring.light_source import LightSource
 from syned.beamline.shape import Rectangle
 
-from orangecontrib.shadow4.widgets.gui.ow_synchrotron_source import OWSynchrotronSource
-from orangecontrib.shadow4.util.shadow4_objects import ShadowData
-from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence
+try:
+    from orangecontrib.shadow4.widgets.gui.ow_synchrotron_source import OWSynchrotronSource
+    from orangecontrib.shadow4.util.shadow4_objects import ShadowData
+    from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence
+except ImportError:
+    pass
+
+from shadow4.beamline.s4_beamline import S4Beamline
 
 from shadow4_advanced.hybrid.s4_hybrid_undulator_light_source import (
     S4HybridUndulatorLightSource, HybridUndulatorInputParameters, HybridUndulatorOutputParameters, HybridUndulatorListener,
@@ -89,12 +92,10 @@ m2ev = codata.c * codata.h / codata.e
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-
 class AutoUndulator:
     VERTICAL   = 1
     HORIZONTAL = 2
     BOTH       = 3
-
 
 class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
     name = "Shadow4/SRW Undulator"
@@ -105,7 +106,6 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
     maintainer_email = "lrebuffi(@at@)anl.gov"
     category = "Sources"
     keywords = ["data", "file", "load", "read"]
-
 
     distribution_source = Setting(0)
     cumulated_view_type = Setting(0)
@@ -327,7 +327,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
         tab_dim   = oasysgui.createTabPage(self.tab_pos, "ID")
 
         oasysgui.lineEdit(tab_dim, self, "undulator_period", "Period Length [m]", labelWidth=260, valueType=float, orientation="horizontal", callback=self.set_harmonic_energy)
-        oasysgui.lineEdit(tab_dim, self, "number_of_periods", "Number of Periods", labelWidth=260, valueType=float, orientation="horizontal")
+        oasysgui.lineEdit(tab_dim, self, "number_of_periods", "Number of Periods", labelWidth=260, valueType=int, orientation="horizontal")
         oasysgui.lineEdit(tab_dim, self, "horizontal_central_position", "Horizontal Central Position [m]", labelWidth=260, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(tab_dim, self, "vertical_central_position", "Vertical Central Position [m]", labelWidth=260, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(tab_dim, self, "longitudinal_central_position", "Longitudinal Central Position [m]", labelWidth=260, valueType=float, orientation="horizontal", callback=self.manage_waist_position)
@@ -536,7 +536,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
     def _get_default_initial_z(self):
         return get_default_initial_z(HybridUndulatorInputParameters(
                                         undulator_period=self.undulator_period,
-                                        number_of_periods=self.number_of_periods,
+                                        number_of_periods=int(self.number_of_periods),
                                         longitudinal_central_position=self.longitudinal_central_position))
 
     def _is_canted_undulator(self):
@@ -679,7 +679,7 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
         if not self.cumulated_power is None:
             self.initialize_cumulated_tabs()
 
-            self.plot_cumulated_results(True)
+            self._plot_cumulated_results(True)
 
     def set_auto_expand(self):
         self.cb_auto_expand_rays.setEnabled(self.auto_expand==1)
@@ -872,15 +872,15 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
 
                     x, xp, y, yp = light_source._electron_beam.get_sigmas_all()
 
-                    self.electron_beam_size_h = round(x, 9)
-                    self.electron_beam_size_v = round(y, 9)
+                    self.electron_beam_size_h       = round(x, 9)
+                    self.electron_beam_size_v       = round(y, 9)
                     self.electron_beam_divergence_h = round(xp, 10)
                     self.electron_beam_divergence_v = round(yp, 10)
 
-                    self.Kh = light_source._magnetic_structure._K_horizontal
-                    self.Kv = light_source._magnetic_structure._K_vertical
-                    self.undulator_period = light_source._magnetic_structure._period_length
-                    self.number_of_periods = light_source._magnetic_structure._number_of_periods
+                    self.Kh                = light_source._magnetic_structure._K_horizontal
+                    self.Kv                = light_source._magnetic_structure._K_vertical
+                    self.undulator_period  = light_source._magnetic_structure._period_length
+                    self.number_of_periods = int(light_source._magnetic_structure._number_of_periods) # SRW needs int
 
                     self.set_harmonic_energy()
                 else:
@@ -896,53 +896,157 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
     ####################################################################################
 
     def run_shadow4(self, scanning_data = None):
-        do_cumulated_calculations = not scanning_data is None
-
-
-
-
-    '''
-    def runShadowSource(self, do_cumulated_calculations=False):
         self.setStatusMessage("")
         self.progressBarInit()
 
-        sys.stdout = EmittingStream(textWritten=self.writeStdOut)
+        sys.stdout = EmittingStream(textWritten=self._write_stdout)
 
         try:
-            beam_out, total_power = BL.run_hybrid_undulator_simulation(self, do_cumulated_calculations)
-            beam_out.getOEHistory().append(ShadowOEHistoryItem(shadow_source_start=ShadowSource.create_src(),
-                                                               shadow_source_end=ShadowSource.create_src(),
-                                                               widget_class_name="Hybrid Undulator"))
+            hybrid_input_parameters = HybridUndulatorInputParameters(
+                electron_beam                                               = self.get_electron_beam(),
+                number_of_rays                                              = self.number_of_rays,
+                seed                                                        = self.seed,
+                use_harmonic                                                = self.use_harmonic,
+                harmonic_number                                             = self.harmonic_number,
+                energy                                                      = self.energy,
+                energy_to                                                   = self.energy_to,
+                energy_points                                               = self.energy_points,
+                number_of_periods                                           = self.number_of_periods,
+                undulator_period                                            = self.undulator_period,
+                Kv                                                          = self.Kv,
+                Kh                                                          = self.Kh,
+                Bh                                                          = self.Bh,
+                Bv                                                          = self.Bv,
+                magnetic_field_from                                         = self.magnetic_field_from,
+                initial_phase_vertical                                      = self.initial_phase_vertical,
+                initial_phase_horizontal                                    = self.initial_phase_horizontal,
+                symmetry_vs_longitudinal_position_vertical                  = self.symmetry_vs_longitudinal_position_vertical,
+                symmetry_vs_longitudinal_position_horizontal                = self.symmetry_vs_longitudinal_position_horizontal,
+                horizontal_central_position                                 = self.horizontal_central_position,
+                vertical_central_position                                   = self.vertical_central_position,
+                longitudinal_central_position                               = self.longitudinal_central_position,
+                type_of_initialization                                      = self.type_of_initialization,
+                use_stokes                                                  = self.use_stokes,
+                auto_expand                                                 = self.auto_expand,
+                auto_expand_rays                                            = self.auto_expand_rays,
+                source_dimension_wf_h_slit_gap                              = self.source_dimension_wf_h_slit_gap,
+                source_dimension_wf_v_slit_gap                              = self.source_dimension_wf_v_slit_gap,
+                source_dimension_wf_h_slit_c                                = self.source_dimension_wf_h_slit_c,
+                source_dimension_wf_v_slit_c                                = self.source_dimension_wf_v_slit_c,
+                source_dimension_wf_h_slit_points                           = self.source_dimension_wf_h_slit_points,
+                source_dimension_wf_v_slit_points                           = self.source_dimension_wf_v_slit_points,
+                source_dimension_wf_distance                                = self.source_dimension_wf_distance,
+                horizontal_range_modification_factor_at_resizing            = self.horizontal_range_modification_factor_at_resizing,
+                horizontal_resolution_modification_factor_at_resizing       = self.horizontal_resolution_modification_factor_at_resizing,
+                vertical_range_modification_factor_at_resizing              = self.vertical_range_modification_factor_at_resizing,
+                vertical_resolution_modification_factor_at_resizing         = self.vertical_resolution_modification_factor_at_resizing,
+                waist_position_calculation                                  = self.waist_position_calculation,
+                waist_position                                              = self.waist_position,
+                waist_position_auto                                         = self.waist_position_auto,
+                waist_position_auto_h                                       = self.waist_position_auto_h,
+                waist_position_auto_v                                       = self.waist_position_auto_v,
+                waist_back_propagation_parameters                           = self.waist_back_propagation_parameters,
+                waist_horizontal_range_modification_factor_at_resizing      = self.waist_horizontal_range_modification_factor_at_resizing,
+                waist_horizontal_resolution_modification_factor_at_resizing = self.waist_horizontal_resolution_modification_factor_at_resizing,
+                waist_vertical_range_modification_factor_at_resizing        = self.waist_vertical_range_modification_factor_at_resizing,
+                waist_vertical_resolution_modification_factor_at_resizing   = self.waist_vertical_resolution_modification_factor_at_resizing,
+                which_waist                                                 = self.which_waist,
+                number_of_waist_fit_points                                  = self.number_of_waist_fit_points,
+                degree_of_waist_fit                                         = self.degree_of_waist_fit,
+                use_sigma_or_fwhm                                           = self.use_sigma_or_fwhm,
+                waist_position_user_defined                                 = self.waist_position_user_defined,
+                kind_of_sampler                                             = self.kind_of_sampler,
+                save_srw_result                                             = self.save_srw_result,
+                source_dimension_srw_file                                   = self.source_dimension_srw_file,
+                angular_distribution_srw_file                               = self.angular_distribution_srw_file,
+                x_positions_file                                            = self.x_positions_file,
+                z_positions_file                                            = self.z_positions_file,
+                x_positions_factor                                          = self.x_positions_factor,
+                z_positions_factor                                          = self.z_positions_factor,
+                x_divergences_file                                          = self.x_divergences_file,
+                z_divergences_file                                          = self.z_divergences_file,
+                x_divergences_factor                                        = self.x_divergences_factor,
+                z_divergences_factor                                        = self.z_divergences_factor,
+                combine_strategy                                            = self.combine_strategy,
+                distribution_source                                         = self.distribution_source,
+                energy_step                                                 = self.energy_step,
+                power_step                                                  = self.power_step,
+                compute_power                                               = self.compute_power,
+                integrated_flux                                             = self.integrated_flux,
+                power_density                                               = self.power_density)
+
+            light_source = S4HybridUndulatorLightSource(name="Shadow4/SRW Undulator Source", hybrid_input_parameters=hybrid_input_parameters)
+
+            # script
+            script = light_source.to_python_code()
+            script += "\n\n# test plot\nfrom srxraylib.plot.gol import plot_scatter"
+            script += "\nrays = beam.get_rays()"
+            script += "\nplot_scatter(1e6 * rays[:, 0], 1e6 * rays[:, 2], title='(X,Z) in microns')"
+            self.shadow4_script.set_code(script)
+
+            do_cumulated_calculations = scanning_data is not None
+
+            params = {"do_cumulated_calculations" : do_cumulated_calculations}
+            output_beam              = light_source.get_beam(**params)
+            hybrid_output_parameters = light_source.get_output_parameters()
+
+            self.cumulated_energies        = hybrid_output_parameters.cumulated_energies
+            self.cumulated_integrated_flux = hybrid_output_parameters.cumulated_integrated_flux
+            self.cumulated_power_density   = hybrid_output_parameters.cumulated_power_density
+            self.cumulated_power           = hybrid_output_parameters.cumulated_power
+
+            self.moment_x        = hybrid_output_parameters.moment_x
+            self.moment_y        = hybrid_output_parameters.moment_y
+            self.moment_z        = hybrid_output_parameters.moment_z
+            self.moment_xp       = hybrid_output_parameters.moment_xp
+            self.moment_yp       = hybrid_output_parameters.moment_yp
+
+            #
+            # send beam and trigger
+            #
+            output_data = ShadowData(beam=output_beam,
+                                     number_of_rays=self.number_of_rays,
+                                     beamline=S4Beamline(light_source=light_source))
+            output_data.scanning_data = scanning_data
+
+            self.Outputs.shadow_data.send(output_data)
+            self.Outputs.trigger.send(TriggerIn(new_object=True))
 
             self.setStatusMessage("Plotting Results")
 
             self.progressBarSet(80)
 
-            self.plot_results(beam_out)
-            self.plot_cumulated_results(do_cumulated_calculations)
+            self._plot_results(output_beam, None, progressBarValue=80)
+
+            if self.distribution_source == 0 and \
+                    is_canted_undulator(hybrid_input_parameters) and \
+                    self.waist_position_calculation == 1:
+
+                    self.waist_position_auto_h = hybrid_input_parameters.waist_position_auto_h
+                    self.waist_position_auto_v = hybrid_input_parameters.waist_position_auto_v
+                    self.waist_position_auto   = hybrid_input_parameters.waist_position_auto
+                    self.waist_position        = hybrid_input_parameters.waist_position
+
+                    self._plot_waist(hybrid_output_parameters)
+
+            self._plot_cumulated_results(do_cumulated_calculations)
 
             self.setStatusMessage("")
 
-            if self.compute_power and self.energy_step and total_power:
+            if self.compute_power and self.energy_step and hybrid_output_parameters.total_power:
                 additional_parameters = {}
-
-                additional_parameters["total_power"]        = total_power
+                additional_parameters["total_power"]        = hybrid_output_parameters.total_power
                 additional_parameters["photon_energy_step"] = self.energy_step
                 additional_parameters["current_step"]       = self.current_step
                 additional_parameters["total_steps"]        = self.total_steps
 
-                beam_out.setScanningData(ShadowBeam.ScanningData("photon_energy", self.energy, "Energy for Power Calculation", "eV", additional_parameters))
-
-            if self.file_to_write_out > 0: beam_out._beam.write("begin.dat")
-
-            self.send("Beam", beam_out)
+                output_data.scanning_data = ShadowData.ScanningData("photon_energy", self.energy, "Energy for Power Calculation", "eV", additional_parameters)
         except Exception as exception:
             QMessageBox.critical(self, "Error", str(exception), QMessageBox.Ok)
 
             if self.IS_DEVELOP: raise exception
 
         self.progressBarFinished()
-    '''
 
     def initializeTabs(self):
         current_tab = self.tabs.currentIndex()
@@ -952,61 +1056,22 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
         for index in indexes:
             self.tabs.removeTab(size - 1 - index)
 
-        show_effective_source_size = QSettings().value("output/show-effective-source-size", 0, int) == 1
-
         titles = self.getTitles()
 
-        if show_effective_source_size:
-            self.tab = [oasysgui.createTabPage(self.tabs, titles[0]),
-                        oasysgui.createTabPage(self.tabs, titles[1]),
-                        oasysgui.createTabPage(self.tabs, titles[2]),
-                        oasysgui.createTabPage(self.tabs, titles[3]),
-                        oasysgui.createTabPage(self.tabs, titles[4]),
-                        oasysgui.createTabPage(self.tabs, titles[5]),
-                        ]
+        self.tab = [oasysgui.createTabPage(self.tabs, titles[0]),
+                    oasysgui.createTabPage(self.tabs, titles[1]),
+                    oasysgui.createTabPage(self.tabs, titles[2]),
+                    oasysgui.createTabPage(self.tabs, titles[3]),
+                    oasysgui.createTabPage(self.tabs, titles[4]),
+                    ]
 
-            self.plot_canvas = [None, None, None, None, None, None]
-        else:
-            self.tab = [oasysgui.createTabPage(self.tabs, titles[0]),
-                        oasysgui.createTabPage(self.tabs, titles[1]),
-                        oasysgui.createTabPage(self.tabs, titles[2]),
-                        oasysgui.createTabPage(self.tabs, titles[3]),
-                        oasysgui.createTabPage(self.tabs, titles[4]),
-                        ]
-
-            self.plot_canvas = [None, None, None, None, None]
+        self.plot_canvas = [None, None, None, None, None]
 
         for tab in self.tab:
             tab.setFixedHeight(self.IMAGE_HEIGHT)
             tab.setFixedWidth(self.IMAGE_WIDTH)
 
         self.tabs.setCurrentIndex(min(current_tab, len(self.tab) - 1))
-
-    def plot_results(self, beam_out, footprint_beam=None, progressBarValue=80):
-        show_effective_source_size = QSettings().value("output/show-effective-source-size", 0, int) == 1
-
-        if show_effective_source_size:
-            if len(self.tab)==5: self.initializeTabs()
-        else:
-            if len(self.tab)==6: self.initializeTabs()
-
-        super().plot_results(beam_out, footprint_beam, progressBarValue)
-
-        if show_effective_source_size and not self.view_type == 2:
-            effective_source_size_beam = beam_out.duplicate(history=False)
-            effective_source_size_beam._beam.retrace(0)
-
-            variables = self.getVariablestoPlot()
-            titles = self.getTitles()
-            xtitles = self.getXTitles()
-            ytitles = self.getYTitles()
-            xums = self.getXUM()
-            yums = self.getYUM()
-
-            if self.view_type == 1:
-                self.plot_xy_fast(effective_source_size_beam, 100,  variables[0][0], variables[0][1], plot_canvas_index=5, title=titles[0], xtitle=xtitles[0], ytitle=ytitles[0])
-            elif self.view_type == 0:
-                self.plot_xy(effective_source_size_beam, 100,  variables[0][0], variables[0][1], plot_canvas_index=5, title=titles[0], xtitle=xtitles[0], ytitle=ytitles[0], xum=xums[0], yum=yums[0])
 
     def getTitles(self):
         return ["X,Z", "X',Z'", "X,X'", "Z,Z'", "Energy", "Effective Source Size"]
@@ -1103,19 +1168,18 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
 
 
         self.cumulated_plot_canvas[plot_canvas_index].addImage(numpy.array(data_to_plot),
-                                                     legend="zio billy",
+                                                     legend="active",
                                                      scale=scale,
                                                      origin=origin,
                                                      colormap=colormap,
                                                      replace=True)
 
-        self.cumulated_plot_canvas[plot_canvas_index].setActiveImage("zio billy")
-
+        self.cumulated_plot_canvas[plot_canvas_index].setActiveImage("active")
         self.cumulated_plot_canvas[plot_canvas_index].setGraphXLabel(xtitle)
         self.cumulated_plot_canvas[plot_canvas_index].setGraphYLabel(ytitle)
         self.cumulated_plot_canvas[plot_canvas_index].setGraphTitle(title)
 
-    def plot_cumulated_results(self, do_cumulated_calculations):
+    def _plot_cumulated_results(self, do_cumulated_calculations):
         if not self.cumulated_view_type == 0 and do_cumulated_calculations==True:
             try:
                 self.cumulated_view_type_combo.setEnabled(False)
@@ -1133,5 +1197,42 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
                 self.cumulated_view_type_combo.setEnabled(True)
 
                 raise Exception("Data not plottable: exception: " + str(e))
+
+
+    def _plot_waist(self, hybrid_output_parameters: HybridUndulatorOutputParameters):
+        def plot(direction, positions, sizes_e, sizes_ph, size_ph_an, sizes_tot, waist_position, waist_size):
+            self.waist_axes[direction].clear()
+            self.waist_axes[direction].set_title(("Horizontal" if direction == 0 else "Vertical") + " Direction\n" +
+                                                   "Source size: " + str(round(waist_size * 1e6, 2)) + " " + r'$\mu$' + "m \n" +
+                                                   "at " + str(round(waist_position * 1e3, 1)) + " mm from the ID center")
+
+            self.waist_axes[direction].plot(positions * 1e3, sizes_e * 1e6, label='electron', color='g')
+            self.waist_axes[direction].plot(positions * 1e3, sizes_ph * 1e6, label='photon', color='b')
+            self.waist_axes[direction].plot(positions * 1e3, size_ph_an * 1e6, '--', label='photon (analytical)', color='b')
+            self.waist_axes[direction].plot(positions * 1e3, sizes_tot * 1e6, label='total', color='r')
+            self.waist_axes[direction].plot([waist_position * 1e3], [waist_size * 1e6], 'bo', label="waist")
+            self.waist_axes[direction].set_xlabel("Position relative to ID center [mm]")
+            self.waist_axes[direction].set_ylabel("Sigma [um]")
+            self.waist_axes[direction].legend()
+
+        plot(0,
+             hybrid_output_parameters.positions,
+             hybrid_output_parameters.sizes_e_x,
+             hybrid_output_parameters.sizes_ph_x,
+             hybrid_output_parameters.sizes_ph_an_x,
+             hybrid_output_parameters.sizes_tot_x,
+             hybrid_output_parameters.waist_position_x,
+             hybrid_output_parameters.waist_size_x)
+        plot(1,
+             hybrid_output_parameters.positions,
+             hybrid_output_parameters.sizes_e_y,
+             hybrid_output_parameters.sizes_ph_y,
+             hybrid_output_parameters.sizes_ph_an_y,
+             hybrid_output_parameters.sizes_tot_y,
+             hybrid_output_parameters.waist_position_y,
+             hybrid_output_parameters.waist_size_y)
+
+        try: self.waist_axes.draw()
+        except: pass
 
 add_widget_parameters_to_module(__name__)
