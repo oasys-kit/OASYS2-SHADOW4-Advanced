@@ -74,7 +74,7 @@ class FootprintFileReader(OWWidget):
     icon = "icons/footprint_reader.png"
     maintainer = "Luca Rebuffi"
     maintainer_email = "lrebuffi(@at@)anl.gov"
-    priority = 5.9
+    priority = 6.2
     category = "Utility"
     keywords = ["data", "file", "load", "read"]
 

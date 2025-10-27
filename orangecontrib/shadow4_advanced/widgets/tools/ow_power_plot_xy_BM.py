@@ -69,7 +69,7 @@ class PowerPlotXYBM(AbstractPowerPlotXY):
     name = "Power Plot XY - BM"
     description = "Display Data Tools: Power Plot XY - BM"
     icon = "icons/bm_plot_xy_power.png"
-    priority = 7.1
+    priority = 7
 
     class Inputs:
         shadow_data = AbstractPowerPlotXY.Inputs.shadow_data

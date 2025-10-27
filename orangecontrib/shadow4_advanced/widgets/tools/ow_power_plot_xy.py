@@ -67,7 +67,7 @@ class PowerPlotXY(AbstractPowerPlotXY):
     name = "Power Plot XY - Undulator"
     description = "Display Data Tools: Power Plot XY - Undulator"
     icon = "icons/plot_xy_power.png"
-    priority = 6.2
+    priority = 6.3
 
     keep_result=Setting(1)
     autosave_partial_results = Setting(0)
