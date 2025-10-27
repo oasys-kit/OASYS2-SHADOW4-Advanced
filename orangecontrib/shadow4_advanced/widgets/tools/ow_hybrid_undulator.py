@@ -66,7 +66,6 @@ from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
 from syned.beamline.optical_elements.absorbers.slit import Slit
 from syned.beamline.shape import Rectangle
-from syned.storage_ring.magnetic_structures.undulator import Undulator
 
 try:
     from orangecontrib.shadow4.widgets.gui.ow_synchrotron_source import OWSynchrotronSource

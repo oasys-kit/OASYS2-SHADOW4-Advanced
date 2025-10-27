@@ -103,6 +103,7 @@ ENTRY_POINTS = {
     'oasys2.widgets' : (
             "SHADOW4 Advanced = orangecontrib.shadow4_advanced.widgets.tools",
     ),
+    'oasys2.menus' : ("shadow4advancedmenu = orangecontrib.shadow4_advanced.menu",)
     }
 
 if __name__ == '__main__':

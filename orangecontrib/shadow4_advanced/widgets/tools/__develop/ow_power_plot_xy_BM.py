@@ -64,7 +64,7 @@ class PowerPlotXYBM(AbstractPowerPlotXY):
     name = "Power Plot XY - BM"
     description = "Display Data Tools: Power Plot XY - BM"
     icon = "icons/bm_plot_xy_power.png"
-    priority = 5.101
+    priority = 7.1
 
     inputs = [("Input Beam", ShadowBeam, "setBeam"),
               ("Input Spectrum", DataExchangeObject, "setFlux")]
@@ -96,7 +96,7 @@ class PowerPlotXYBM(AbstractPowerPlotXY):
         try:
             ticket = self.plot_canvas.plot_power_density_BM(shadow_beam, self.initial_energy, self.initial_flux, self.nbins_interpolation,
                                                             var_x, var_y, nbins_h, nbins_v, xrange, yrange, nolost,
-                                                            show_image=self.view_type==1, to_mm=self.workspace_units_to_mm)
+                                                            show_image=self.view_type==1)
 
             self.plotted_ticket = ticket
             self.plotted_ticket_original = self.plotted_ticket.copy()

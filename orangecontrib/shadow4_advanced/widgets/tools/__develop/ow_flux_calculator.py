@@ -74,7 +74,7 @@ class FluxCalculator(AutomaticElement):
     icon = "icons/flux.png"
     maintainer = "Luca Rebuffi"
     maintainer_email = "lrebuffi(@at@)anl.gov"
-    priority = 10
+    priority = 7.0
     category = "User Defined"
     keywords = ["data", "file", "load", "read"]
 

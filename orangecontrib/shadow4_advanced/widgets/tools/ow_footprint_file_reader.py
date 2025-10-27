@@ -57,8 +57,11 @@ from oasys2.widget import gui as oasysgui
 from oasys2.widget.widget import OWWidget
 from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
-from orangecontrib.shadow4.util.shadow4_objects import ShadowData
-from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence
+try:
+    from orangecontrib.shadow4.util.shadow4_objects import ShadowData
+    from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence
+except ImportError:
+    pass
 
 from shadow4.beam.s4_beam import S4Beam
 from shadow4.beamline.s4_beamline import S4Beamline
@@ -128,12 +131,12 @@ class FootprintFileReader(OWWidget):
     
                     additional_parameters = {}
                     if is_scanning:
-                        total_power = self.input_beam.scanning_data.get_additional_parameter("total_power")
+                        total_power = self.input_data.scanning_data.get_additional_parameter("total_power")
     
                         additional_parameters["total_power"]        = total_power
-                        additional_parameters["current_step"]       = self.input_beam.scanning_data.get_additional_parameter("current_step")
-                        additional_parameters["total_steps"]        = self.input_beam.scanning_data.get_additional_parameter("total_steps")
-                        additional_parameters["photon_energy_step"] = self.input_beam.scanning_data.get_additional_parameter("photon_energy_step")
+                        additional_parameters["current_step"]       = self.input_data.scanning_data.get_additional_parameter("current_step")
+                        additional_parameters["total_steps"]        = self.input_data.scanning_data.get_additional_parameter("total_steps")
+                        additional_parameters["photon_energy_step"] = self.input_data.scanning_data.get_additional_parameter("photon_energy_step")
                     additional_parameters["is_footprint"] = True
                     
                     last_oe: S4BeamlineElement = beamline.get_beamline_element_at(-1)
@@ -142,7 +145,7 @@ class FootprintFileReader(OWWidget):
                     transmitted_beam = self.input_data.beam
     
                     if is_scanning:
-                        n_rays = len(incident_beam.get_number_of_rays()) # lost and good!
+                        n_rays = incident_beam.get_number_of_rays() # lost and good!
     
                         ticket = incident_beam.histo2(1, 3, nbins=100, xrange=None, yrange=None, nolost=1, ref=23)
                         ticket['histogram'] *= (total_power/n_rays) # power
@@ -192,11 +195,11 @@ class FootprintFileReader(OWWidget):
                                              beam=output_beam,
                                              footprint=output_beam)
                     if is_scanning:
-                        output_data.scanning_data = ShadowData.ScanningData(self.input_data.scanning_data.get_scanned_variable_name(),
-                                                                            self.input_data.scanning_data.get_scanned_variable_value(),
-                                                                            self.input_data.scanning_data.get_scanned_variable_display_name(),
-                                                                            self.input_data.scanning_data.get_scanned_variable_um(),
-                                                                            additional_parameters)
+                        output_data.scanning_data = ShadowData.ScanningData(self.input_data.scanning_data.scanned_variable_name,
+                                                                            self.input_data.scanning_data.scanned_variable_value,
+                                                                            self.input_data.scanning_data.scanned_variable_display_name,
+                                                                            self.input_data.scanning_data.scanned_variable_um,
+                                                                            additional_parameters=additional_parameters)
                     else:
                         output_data.scanning_data = ShadowData.ScanningData(None, None, None, None,
                                                                             additional_parameters=additional_parameters)
@@ -204,5 +207,7 @@ class FootprintFileReader(OWWidget):
                     self.Outputs.shadow_data.send(output_data)
         except Exception as exception:
             QMessageBox.critical(self, "Error", str(exception), QMessageBox.Ok)
+
+            if self.IS_DEVELOP: raise exception
 
 add_widget_parameters_to_module(__name__)

@@ -45,31 +45,29 @@
 # POSSIBILITY OF SUCH DAMAGE.                                             #
 # #########################################################################
 
-import sys
-import time
-
-from PyQt5.QtWidgets import QMessageBox
-
 from orangewidget import gui
 from orangewidget.settings import Setting
-from oasys.widgets import gui as oasysgui
-from oasys.widgets import congruence
-from oasys.widgets.gui import ConfirmDialog
 
-from oasys.util.oasys_util import EmittingStream
+from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
-from orangecontrib.shadow.util.shadow_util import ShadowCongruence, ShadowPlot
-from orangecontrib.shadow_advanced_tools.util.gui import PowerPlotXYWidget
+from oasys2.widget import gui as oasysgui
+from oasys2.widget.util import congruence
+from oasys2.widget.gui import ConfirmDialog
+
+try:
+    from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, ShadowPlot
+except ImportError:
+    pass
 
 import scipy.constants as codata
 
-from orangecontrib.shadow_advanced_tools.widgets.thermal.gui.power_plot_xy import AbstractPowerPlotXY
+from orangecontrib.shadow4_advanced.widgets.gui.power_plot_xy import AbstractPowerPlotXY, PowerPlotXYWidget
 
 class PowerPlotXY(AbstractPowerPlotXY):
     name = "Power Plot XY - Undulator"
     description = "Display Data Tools: Power Plot XY - Undulator"
     icon = "icons/plot_xy_power.png"
-    priority = 5.1
+    priority = 6.2
 
     keep_result=Setting(1)
     autosave_partial_results = Setting(0)
@@ -113,7 +111,7 @@ class PowerPlotXY(AbstractPowerPlotXY):
         else: proceed = ConfirmDialog.confirmed(parent=self)
 
         if proceed:
-            self.input_beam = None
+            self.input_data = None
             self.cumulated_ticket = None
             self.plotted_ticket = None
             self.energy_min = None
@@ -142,29 +140,29 @@ class PowerPlotXY(AbstractPowerPlotXY):
     #########################################################
     # I/O
 
-    def _analyze_input_beam(self, input_beam):
-        if not input_beam.scanned_variable_data is None and input_beam.scanned_variable_data.has_additional_parameter("total_power"):
-            self.input_beam = input_beam.duplicate()
+    def _analyze_input_data(self, input_data):
+        if not input_data.scanning_data is None and input_data.scanning_data.has_additional_parameter("total_power"):
+            self.input_data = input_data.duplicate()
 
-            self.current_step = self.input_beam.scanned_variable_data.get_additional_parameter("current_step")
-            self.total_steps = self.input_beam.scanned_variable_data.get_additional_parameter("total_steps")
-            self.energy_step = self.input_beam.scanned_variable_data.get_additional_parameter("photon_energy_step")
+            self.current_step = self.input_data.scanning_data.get_additional_parameter("current_step")
+            self.total_steps  = self.input_data.scanning_data.get_additional_parameter("total_steps")
+            self.energy_step  = self.input_data.scanning_data.get_additional_parameter("photon_energy_step")
 
-            self.total_power = self.input_beam.scanned_variable_data.get_additional_parameter("total_power")
+            self.total_power = self.input_data.scanning_data.get_additional_parameter("total_power")
 
             if self.cumulated_quantity == 1:  # Intensity
                 self.total_power /= (1e3 * self.energy_step * codata.e)  # to ph/s
 
-            self.energy_max = self.input_beam.scanned_variable_data.get_scanned_variable_value()
+            self.energy_max = self.input_data.scanning_data.scanned_variable_value
 
             if self.energy_min is None:
-                self.energy_min = self.input_beam.scanned_variable_data.get_scanned_variable_value()
+                self.energy_min = self.input_data.scanning_data.scanned_variable_value
                 self.cumulated_total_power = self.total_power
             else:
                 self.cumulated_total_power += self.total_power
 
-            if self.input_beam.scanned_variable_data.has_additional_parameter("is_footprint"):
-                if self.input_beam.scanned_variable_data.get_additional_parameter("is_footprint"):
+            if self.input_data.scanning_data.has_additional_parameter("is_footprint"):
+                if self.input_data.scanning_data.get_additional_parameter("is_footprint"):
                     self.cb_rays.setEnabled(False)
                     self.rays = 0  # transmitted, absorbed doesn't make sense since is precalculated by footprint object
                 else:
@@ -177,11 +175,10 @@ class PowerPlotXY(AbstractPowerPlotXY):
     #########################################################
     # PLOTTING
 
-    def replace_fig(self, shadow_beam, var_x, var_y, xrange, yrange, nbins_h, nbins_v, nolost):
+    def replace_fig(self, shadow_data, var_x, var_y, xrange, yrange, nbins_h, nbins_v, nolost):
         if self.plot_canvas is None:
             self.plot_canvas = PowerPlotXYWidget()
             self.image_box.layout().addWidget(self.plot_canvas)
-
         try:
             if self.autosave == 1:
                 if self.autosave_file is None:
@@ -196,12 +193,11 @@ class PowerPlotXY(AbstractPowerPlotXY):
                 self.autosave_file.add_attribute("last_power_value", self.total_power, dataset_name="additional_data")
 
             if self.keep_result == 1:
-                self.cumulated_ticket, last_ticket = self.plot_canvas.plot_power_density(shadow_beam, var_x, var_y,
+                self.cumulated_ticket, last_ticket = self.plot_canvas.plot_power_density(shadow_data, var_x, var_y,
                                                                                          self.total_power, self.cumulated_total_power,
                                                                                          self.energy_min, self.energy_max, self.energy_step,
                                                                                          nbins_h=nbins_h, nbins_v=nbins_v, xrange=xrange, yrange=yrange, nolost=nolost,
                                                                                          ticket_to_add=self.cumulated_ticket,
-                                                                                         to_mm=self.workspace_units_to_mm,
                                                                                          show_image=self.view_type==1,
                                                                                          kind_of_calculation=self.kind_of_calculation,
                                                                                          replace_poor_statistic=self.replace_poor_statistic,
@@ -242,11 +238,10 @@ class PowerPlotXY(AbstractPowerPlotXY):
 
                     self.autosave_file.flush()
             else:
-                ticket, _ = self.plot_canvas.plot_power_density(shadow_beam, var_x, var_y,
+                ticket, _ = self.plot_canvas.plot_power_density(shadow_data, var_x, var_y,
                                                                 self.total_power, self.cumulated_total_power,
                                                                 self.energy_min, self.energy_max, self.energy_step,
                                                                 nbins_h=nbins_h, nbins_v=nbins_v, xrange=xrange, yrange=yrange, nolost=nolost,
-                                                                to_mm=self.workspace_units_to_mm,
                                                                 show_image=self.view_type==1,
                                                                 kind_of_calculation=self.kind_of_calculation,
                                                                 replace_poor_statistic=self.replace_poor_statistic,
@@ -272,3 +267,5 @@ class PowerPlotXY(AbstractPowerPlotXY):
                 raise Exception("Data not plottable: " + str(e))
             else:
                 raise e
+
+add_widget_parameters_to_module(__name__)

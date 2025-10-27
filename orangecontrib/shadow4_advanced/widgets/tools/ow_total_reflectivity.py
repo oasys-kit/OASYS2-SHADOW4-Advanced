@@ -47,40 +47,42 @@
 
 import sys, numpy, os
 
-from PyQt5.QtWidgets import QMessageBox
+from AnyQt.QtWidgets import QMessageBox
 
 from orangewidget import gui
-from orangewidget.widget import OWAction
 from orangewidget.settings import Setting
+from orangewidget.widget import Input, Output
 
-from oasys.widgets.exchange import DataExchangeObject
-from oasys.widgets import gui as oasysgui
-from oasys.widgets import widget, congruence
+from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
-class TotalFilterCalculator(widget.OWWidget):
+from oasys2.widget.util.exchange import DataExchangeObject
+from oasys2.widget import gui as oasysgui
+from oasys2.widget.util import congruence
+from oasys2.widget.widget import OWWidget, OWAction
+
+class TotalFilterCalculator(OWWidget):
 
     name = "Total Filter Calculator"
     description = "Total Filter Calculator"
     icon = "icons/total_filter.png"
     maintainer = "Luca Rebuffi"
     maintainer_email = "lrebuffi(@at@)anl.gov"
-    priority = 5.01
+    priority = 6.1
     category = "User Defined"
     keywords = ["data", "file", "load", "read"]
 
-    inputs = [("Mirror Reflectivity #1", DataExchangeObject, "set_ref_1"),
-              ("Mirror Reflectivity #2", DataExchangeObject, "set_ref_2"),
-              ("Mirror Reflectivity #3", DataExchangeObject, "set_ref_3"),
-              ("Diffraction Profile #1", DataExchangeObject, "set_dif_1"),
-              ("Diffraction Profile #2", DataExchangeObject, "set_dif_2"),
-              ("MultiLayer Reflectivity #1", DataExchangeObject, "set_mul_1"),
-              ("MultiLayer Reflectivity #2", DataExchangeObject, "set_mul_2"),
-              ("Power Output #1", DataExchangeObject, "set_pow_1")]
+    class Inputs:
+        ref_1 = Input("Mirror Reflectivity #1", DataExchangeObject, default=True, auto_summary=False)
+        ref_2 = Input("Mirror Reflectivity #2", DataExchangeObject, default=True, auto_summary=False)
+        ref_3 = Input("Mirror Reflectivity #3", DataExchangeObject, default=True, auto_summary=False)
+        dif_1 = Input("Diffraction Profile #1", DataExchangeObject, default=True, auto_summary=False)
+        dif_2 = Input("Diffraction Profile #2", DataExchangeObject, default=True, auto_summary=False)
+        mul_1 = Input("MultiLayer Reflectivity #1", DataExchangeObject, default=True, auto_summary=False)
+        mul_2 = Input("MultiLayer Reflectivity #2", DataExchangeObject, default=True, auto_summary=False)
+        pow_1 = Input("Power Output #1", DataExchangeObject, default=True, auto_summary=False)
 
-    outputs = [{"name":"Total Filter",
-                "type":DataExchangeObject,
-                "doc":"Total Filter",
-                "id":"total_filter"}]
+    class Outputs:
+        total_filter = Output("Total Filter", DataExchangeObject, default=True, auto_summary=False)
 
     want_main_area = 1
 
@@ -283,13 +285,21 @@ class TotalFilterCalculator(widget.OWWidget):
                 
                 if self.IS_DEVELOP: raise e
 
+    @Inputs.ref_1
     def set_ref_1(self, exchange_data): self.__set_data(exchange_data, self.__get_mirror_reflectivity,     "ref_1", self.cb_ref_1)
+    @Inputs.ref_2
     def set_ref_2(self, exchange_data): self.__set_data(exchange_data, self.__get_mirror_reflectivity,     "ref_2", self.cb_ref_2)
+    @Inputs.ref_3
     def set_ref_3(self, exchange_data): self.__set_data(exchange_data, self.__get_mirror_reflectivity,     "ref_3", self.cb_ref_3)
+    @Inputs.dif_1
     def set_dif_1(self, exchange_data): self.__set_data(exchange_data, self.__get_diffraction_profile,     "dif_1", self.cb_dif_1)
+    @Inputs.dif_2
     def set_dif_2(self, exchange_data): self.__set_data(exchange_data, self.__get_diffraction_profile,     "dif_2", self.cb_dif_2)
+    @Inputs.mul_1
     def set_mul_1(self, exchange_data): self.__set_data(exchange_data, self.__get_multilayer_reflectivity, "mul_1", self.cb_mul_1)
+    @Inputs.mul_2
     def set_mul_2(self, exchange_data): self.__set_data(exchange_data, self.__get_multilayer_reflectivity, "mul_2", self.cb_mul_2)
+    @Inputs.pow_1
     def set_pow_1(self, exchange_data): self.__set_data(exchange_data, self.__get_power_data,              "pow_1", self.cb_pow_1)
 
     def __add_data_to_total_filter(self, total_filter, data, nr_data, check, absorbed=False):
@@ -332,10 +342,10 @@ class TotalFilterCalculator(widget.OWWidget):
                 self.filter_plot.setGraphYLabel("Intensity Factor")
                 self.filter_plot.setGraphTitle("Total Filter")
 
-                calculated_data = DataExchangeObject("ShadowOui_Thermal", "TOTAL_FILTER")
+                calculated_data = DataExchangeObject("Shadow4-Thermal", "TOTAL_FILTER")
                 calculated_data.add_content("total_filter", total_filter)
 
-                self.send("Total Filter", calculated_data)
+                self.Outputs.total_filter.send(calculated_data)
             else:
                 raise ValueError("Calculation not possibile: no input data")
         except Exception as e:
@@ -343,5 +353,4 @@ class TotalFilterCalculator(widget.OWWidget):
 
             if self.IS_DEVELOP: raise e
 
-
-
+add_widget_parameters_to_module(__name__)

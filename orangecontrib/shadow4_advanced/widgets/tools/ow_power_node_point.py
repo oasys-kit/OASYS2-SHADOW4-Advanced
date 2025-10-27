@@ -45,30 +45,34 @@
 # POSSIBILITY OF SUCH DAMAGE.                                             #
 # #########################################################################
 
-import sys, numpy, os
+import numpy
 
 import scipy.constants as codata
 m2ev = codata.c * codata.h / codata.e
 
-from PyQt5.QtGui import QPalette, QFont, QColor
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from AnyQt.QtWidgets import QMessageBox
 
-from orangewidget.widget import OWAction
 from orangewidget import gui
 from orangewidget.settings import Setting
+from orangewidget.widget import Input, Output
 
-from oasys.widgets import widget
-from oasys.widgets import gui as oasysgui
-from oasys.widgets.gui import ConfirmDialog
-from oasys.widgets import congruence
+from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
-from oasys.util.oasys_util import TriggerIn, TriggerOut
-from oasys.widgets.exchange import DataExchangeObject
+from oasys2.widget.widget import OWWidget, OWAction
+from oasys2.widget import gui as oasysgui
+from oasys2.widget.gui import ConfirmDialog, Styles
+from oasys2.widget.util import congruence
+from oasys2.widget.util.widget_objects import TriggerIn, TriggerOut
+from oasys2.widget.util.exchange import DataExchangeObject
 
-from orangecontrib.shadow.util.shadow_util import ShadowPlot
+try:
+    from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, ShadowPlot
+except ImportError:
+    pass
 
 AUTOBINNING_FILE = "autobinning.dat"
 FILTERS_FILE     = "filters.dat"
+NONE             = numpy.nan
 
 class EnergyBinning(object):
     def __init__(self,
@@ -84,47 +88,41 @@ class EnergyBinning(object):
     def __str__(self):
         return str(self.energy_value) + ", " + str(self.energy_value_to) + ", " + str(self.energy_step) + ", " + str(self.power_step)
 
-class PowerLoopPoint(widget.OWWidget):
+class PowerLoopPoint(OWWidget):
 
     name = "Power Density Loop Point"
     description = "Tools: LoopPoint"
     icon = "icons/cycle_power.png"
     maintainer = "Luca Rebuffi"
     maintainer_email = "lrebuffi(@at@)anl.gov"
-    priority = 5
+    priority = 6.0
     category = "User Defined"
     keywords = ["data", "file", "load", "read"]
 
-    inputs = []#WidgetDecorator.syned_input_data()
-    inputs.append(("Trigger", TriggerIn, "passTrigger"))
-    inputs.append(("Energy Spectrum", DataExchangeObject, "acceptEnergySpectrum" ))
-    inputs.append(("Filters", DataExchangeObject, "acceptFilters" ))
-
-    outputs = [{"name":"Trigger",
-                "type":TriggerOut,
-                "doc":"Trigger",
-                "id":"Trigger"}]
+    class Inputs:
+        trigger         = Input("Trigger", TriggerIn, default=True, auto_summary=False)
+        energy_spectrum = Input("Energy Spectrum", DataExchangeObject, default=True, auto_summary=False)
+        filters         = Input("Filters", DataExchangeObject, default=True, auto_summary=False)
+    
+    class Outputs:
+        trigger = Output("Trigger", TriggerOut, default=True, auto_summary=False)
+    
     want_main_area = 1
 
-    current_new_object = 0
-    number_of_new_objects = 0
-    
+    _run_loop     = True
+    _suspend_loop = False
+
+    current_new_object       = 0
+    number_of_new_objects    = 0
     total_current_new_object = 0
-    total_new_objects = Setting(0)
+    total_new_objects        = Setting(0)
 
-    run_loop = True
-    suspend_loop = False
-
-    energies = Setting("")
-
-    seed_increment=Setting(1)
-
-    autobinning = Setting(1)
-
-    auto_n_step = Setting(1001)
+    energies              = Setting("")
+    seed_increment        = Setting(1)
+    autobinning           = Setting(1)
+    auto_n_step           = Setting(1001)
     auto_perc_total_power = Setting(99)
-
-    send_power_step = Setting(0)
+    send_power_step       = Setting(0)
 
     load_file_mode        = Setting(1) # automatic
     skip_rows             = Setting(1)
@@ -132,18 +130,17 @@ class PowerLoopPoint(widget.OWWidget):
     filters_file_name     = Setting(FILTERS_FILE)
 
     recovery_last_energy_step = -1
-    recovery_file_name = "<Partial Result before Crash>"
+    recovery_file_name        = "<Partial Result before Crash>"
 
     current_energy_binning = -1
-    current_energy_value = None
-    current_energy_step = None
-    current_power_step = None
+    current_energy_value   = NONE
+    current_energy_step    = None
+    current_power_step     = None
 
-    energy_binnings = None
-
+    energy_binnings  = None
     external_binning = False
 
-    filters = None
+    filters       = None
     spectrum_data = None
 
     #################################
@@ -152,58 +149,49 @@ class PowerLoopPoint(widget.OWWidget):
 
     def __init__(self):
         self.runaction = OWAction("Start", self)
-        self.runaction.triggered.connect(self.startLoop)
+        self.runaction.triggered.connect(self.start_loop)
         self.addAction(self.runaction)
 
         self.runaction = OWAction("Stop", self)
-        self.runaction.triggered.connect(self.stopLoop)
+        self.runaction.triggered.connect(self.stop_loop)
         self.addAction(self.runaction)
 
         self.runaction = OWAction("Suspend", self)
-        self.runaction.triggered.connect(self.suspendLoop)
+        self.runaction.triggered.connect(self.suspend_loop)
         self.addAction(self.runaction)
 
         self.runaction = OWAction("Restart", self)
-        self.runaction.triggered.connect(self.restartLoop)
+        self.runaction.triggered.connect(self.restart_loop)
         self.addAction(self.runaction)
 
         self.setFixedWidth(1200)
-        self.setFixedHeight(710)
+        self.setFixedHeight(730)
 
         button_box = oasysgui.widgetBox(self.controlArea, "", addSpace=True, orientation="horizontal")
 
-        self.start_button = gui.button(button_box, self, "Start", callback=self.startLoop)
+        self.start_button = gui.button(button_box, self, "Start", callback=self.start_loop)
         self.start_button.setFixedHeight(35)
 
-        stop_button = gui.button(button_box, self, "Stop", callback=self.stopLoop)
+        stop_button = gui.button(button_box, self, "Stop", callback=self.stop_loop)
+        stop_button.setStyleSheet("color: red; font-weight: bold; font-style: italic;")
         stop_button.setFixedHeight(35)
-        font = QFont(stop_button.font())
-        font.setBold(True)
-        stop_button.setFont(font)
-        palette = QPalette(stop_button.palette()) # make a copy of the palette
-        palette.setColor(QPalette.ButtonText, QColor('red'))
-        stop_button.setPalette(palette) # assign new palette
 
         self.stop_button = stop_button
 
         button_box = oasysgui.widgetBox(self.controlArea, "", addSpace=True, orientation="horizontal")
 
-        suspend_button = gui.button(button_box, self, "Suspend", callback=self.suspendLoop)
+        suspend_button = gui.button(button_box, self, "Suspend", callback=self.suspend_loop)
+        suspend_button.setStyleSheet("color: orange; font-weight: bold;")
         suspend_button.setFixedHeight(35)
-        font = QFont(suspend_button.font())
-        font.setBold(True)
-        suspend_button.setFont(font)
-        palette = QPalette(suspend_button.palette()) # make a copy of the palette
-        palette.setColor(QPalette.ButtonText, QColor('orange'))
-        suspend_button.setPalette(palette) # assign new palette
-
-        self.re_start_button = gui.button(button_box, self, "Restart", callback=self.restartLoop)
+        
+        self.re_start_button = gui.button(button_box, self, "Restart", callback=self.restart_loop)
         self.re_start_button.setFixedHeight(35)
         self.re_start_button.setEnabled(False)
 
         tabs = oasysgui.tabWidget(self.controlArea)
-        tab_loop = oasysgui.createTabPage(tabs, "Loop Management")
-        tab_load = oasysgui.createTabPage(tabs, "Settings")
+        
+        tab_loop     = oasysgui.createTabPage(tabs, "Loop Management")
+        tab_load     = oasysgui.createTabPage(tabs, "Settings")
         tab_recovery = oasysgui.createTabPage(tabs, "Crash Recovery")
 
         left_box_2 = oasysgui.widgetBox(tab_recovery, "Crash Recovery", addSpace=False, orientation="vertical", width=385, height=560)
@@ -212,15 +200,15 @@ class PowerLoopPoint(widget.OWWidget):
 
         load_box = oasysgui.widgetBox(left_box_2, "", addSpace=False, orientation="horizontal", height=30)
         self.le_recovery_file_name = oasysgui.lineEdit(load_box, self, "recovery_file_name", "Extract from File", labelWidth=110, valueType=str, orientation="horizontal")
-        gui.button(load_box, self, "...", callback=self.selectRecoveryFile, width=25)
+        gui.button(load_box, self, "...", callback=self.select_recovery_file, width=25)
 
-        gui.button(left_box_2, self, "Restart from Crash", callback=self.restartLoopFromCrash)
+        gui.button(left_box_2, self, "Restart from Crash", callback=self.restart_loop_from_crash)
 
         left_box_2 = oasysgui.widgetBox(tab_load, "Input Files Management", addSpace=False, orientation="vertical", width=385, height=560)
 
         gui.comboBox(left_box_2, self, "load_file_mode", label="Input Files Mode",
                      items=["Manual", "Automatic"], labelWidth=150,
-                     callback=self.set_LoadFileMode, sendSelectedValue=False, orientation="horizontal")
+                     callback=self.set_load_file_mode, sendSelectedValue=False, orientation="horizontal")
 
         self.load_file_mode_box_1 = oasysgui.widgetBox(left_box_2, "", addSpace=False, orientation="vertical", height=100)
         self.load_file_mode_box_2 = oasysgui.widgetBox(left_box_2, "", addSpace=False, orientation="vertical", height=100)
@@ -230,13 +218,13 @@ class PowerLoopPoint(widget.OWWidget):
 
         load_box = oasysgui.widgetBox(self.load_file_mode_box_1, "", addSpace=False, orientation="horizontal", height=30)
         self.le_autobinning_file_name = oasysgui.lineEdit(load_box, self, "autobinning_file_name", "Energy Spectrum", labelWidth=110, valueType=str, orientation="horizontal")
-        gui.button(load_box, self, "...", callback=self.selectAutobinningFile, width=25)
+        gui.button(load_box, self, "...", callback=self.select_autobinning_file, width=25)
 
         load_box = oasysgui.widgetBox(self.load_file_mode_box_1, "", addSpace=False, orientation="horizontal", height=30)
         self.le_filters_file_name = oasysgui.lineEdit(load_box, self, "filters_file_name", "Filters File", labelWidth=110, valueType=str, orientation="horizontal")
-        gui.button(load_box, self, "...", callback=self.selectFiltersFile, width=25)
+        gui.button(load_box, self, "...", callback=self.select_filters_file, width=25)
 
-        self.set_LoadFileMode()
+        self.set_load_file_mode()
 
         left_box_1 = oasysgui.widgetBox(tab_loop, "", addSpace=False, orientation="vertical", width=385, height=560)
 
@@ -246,7 +234,7 @@ class PowerLoopPoint(widget.OWWidget):
 
         gui.comboBox(left_box_1, self, "autobinning", label="Energy Binning",
                      items=["Manual", "Automatic (Constant Power)", "Automatic (Constant Energy)"], labelWidth=150,
-                     callback=self.set_Autobinning, sendSelectedValue=False, orientation="horizontal")
+                     callback=self.set_autobinning, sendSelectedValue=False, orientation="horizontal")
 
         self.autobinning_box_1 = oasysgui.widgetBox(left_box_1, "", addSpace=False, orientation="vertical", height=50)
         self.autobinning_box_2 = oasysgui.widgetBox(left_box_1, "", addSpace=False, orientation="vertical", height=140)
@@ -270,8 +258,7 @@ class PowerLoopPoint(widget.OWWidget):
 
         oasysgui.widgetLabel(self.autobinning_box_2, "Energy Value [eV], Energy Step [eV], Power Step [W]")
 
-        def write_text():
-            self.energies = self.text_area.toPlainText()
+        def write_text(): self.energies = self.text_area.toPlainText()
 
         self.text_area = oasysgui.textArea(height=95, width=385, readOnly=False)
         self.text_area.setText(self.energies)
@@ -282,62 +269,32 @@ class PowerLoopPoint(widget.OWWidget):
 
         gui.separator(left_box_1)
 
-        self.le_number_of_new_objects = oasysgui.lineEdit(left_box_1, self, "total_new_objects", "Total Energy Values", labelWidth=250, valueType=int, orientation="horizontal")
-        self.le_number_of_new_objects.setReadOnly(True)
-        font = QFont(self.le_number_of_new_objects.font())
-        font.setBold(True)
-        self.le_number_of_new_objects.setFont(font)
-        palette = QPalette(self.le_number_of_new_objects.palette()) # make a copy of the palette
-        palette.setColor(QPalette.Text, QColor('dark blue'))
-        palette.setColor(QPalette.Base, QColor(243, 240, 160))
-        self.le_number_of_new_objects.setPalette(palette)
+        self.le_total_new_objects = oasysgui.lineEdit(left_box_1, self, "total_new_objects", "Total Energy Values", labelWidth=250, valueType=int, orientation="horizontal")
+        self.le_total_new_objects.setReadOnly(True)
+        self.le_total_new_objects.setStyleSheet(Styles.line_edit_read_only)
 
         self.le_number_of_new_objects = oasysgui.lineEdit(left_box_1, self, "number_of_new_objects", "Current Binning Energy Values", labelWidth=250, valueType=int, orientation="horizontal")
         self.le_number_of_new_objects.setReadOnly(True)
-        font = QFont(self.le_number_of_new_objects.font())
-        font.setBold(True)
-        self.le_number_of_new_objects.setFont(font)
-        palette = QPalette(self.le_number_of_new_objects.palette()) # make a copy of the palette
-        palette.setColor(QPalette.Text, QColor('dark blue'))
-        palette.setColor(QPalette.Base, QColor(243, 240, 160))
-        self.le_number_of_new_objects.setPalette(palette)
+        self.le_number_of_new_objects.setStyleSheet(Styles.line_edit_read_only)
 
         gui.separator(left_box_1)
 
-        le_current_value = oasysgui.lineEdit(left_box_1, self, "total_current_new_object", "Total New " + self.get_object_name(), labelWidth=250, valueType=int, orientation="horizontal")
-        le_current_value.setReadOnly(True)
-        font = QFont(le_current_value.font())
-        font.setBold(True)
-        le_current_value.setFont(font)
-        palette = QPalette(le_current_value.palette()) # make a copy of the palette
-        palette.setColor(QPalette.Text, QColor('dark blue'))
-        palette.setColor(QPalette.Base, QColor(243, 240, 160))
-        le_current_value.setPalette(palette)
+        le_total_current_value = oasysgui.lineEdit(left_box_1, self, "total_current_new_object", "Total New " + self.get_object_name(), labelWidth=250, valueType=int, orientation="horizontal")
+        le_total_current_value.setReadOnly(True)
+        le_total_current_value.setStyleSheet(Styles.line_edit_read_only)
 
         le_current_value = oasysgui.lineEdit(left_box_1, self, "current_new_object", "Current Binning New " + self.get_object_name(), labelWidth=250, valueType=int, orientation="horizontal")
         le_current_value.setReadOnly(True)
-        font = QFont(le_current_value.font())
-        font.setBold(True)
-        le_current_value.setFont(font)
-        palette = QPalette(le_current_value.palette()) # make a copy of the palette
-        palette.setColor(QPalette.Text, QColor('dark blue'))
-        palette.setColor(QPalette.Base, QColor(243, 240, 160))
-        le_current_value.setPalette(palette)
+        le_current_value.setStyleSheet(Styles.line_edit_read_only)
 
-        le_current_value = oasysgui.lineEdit(left_box_1, self, "current_energy_value", "Current Energy Value", labelWidth=250, valueType=float, orientation="horizontal")
-        le_current_value.setReadOnly(True)
-        font = QFont(le_current_value.font())
-        font.setBold(True)
-        le_current_value.setFont(font)
-        palette = QPalette(le_current_value.palette()) # make a copy of the palette
-        palette.setColor(QPalette.Text, QColor('dark blue'))
-        palette.setColor(QPalette.Base, QColor(243, 240, 160))
-        le_current_value.setPalette(palette)
+        le_current_energy_value = oasysgui.lineEdit(left_box_1, self, "current_energy_value", "Current Energy Value", labelWidth=250, valueType=float, orientation="horizontal")
+        le_current_energy_value.setReadOnly(True)
+        le_current_energy_value.setStyleSheet(Styles.line_edit_read_only)
 
         gui.rubber(self.controlArea)
 
         tabs = oasysgui.tabWidget(self.mainArea)
-        tabs.setFixedHeight(self.height()-15)
+        tabs.setFixedHeight(self.height()-40)
         tabs.setFixedWidth(775)
 
         tab_plot = oasysgui.createTabPage(tabs, "Cumulated Power")
@@ -345,42 +302,42 @@ class PowerLoopPoint(widget.OWWidget):
         tab_fil = oasysgui.createTabPage(tabs, "Filter")
 
         self.cumulated_power_plot = oasysgui.plotWindow(tab_plot, position=True)
-        self.cumulated_power_plot.setFixedHeight(self.height()-60)
+        self.cumulated_power_plot.setFixedHeight(self.height()-80)
         self.cumulated_power_plot.setFixedWidth(765)
         self.cumulated_power_plot.setGraphXLabel("Energy [eV]")
         self.cumulated_power_plot.setGraphYLabel("Cumulated Power [W]")
         self.cumulated_power_plot.setGraphTitle("Cumulated Power")
 
         self.spectral_flux_plot = oasysgui.plotWindow(tab_flux, position=True)
-        self.spectral_flux_plot.setFixedHeight(self.height()-60)
+        self.spectral_flux_plot.setFixedHeight(self.height()-80)
         self.spectral_flux_plot.setFixedWidth(765)
         self.spectral_flux_plot.setGraphXLabel("Energy [eV]")
         self.spectral_flux_plot.setGraphYLabel("Flux [ph/s/.1%bw]")
         self.spectral_flux_plot.setGraphTitle("Spectral Flux")
 
         self.filter_plot = oasysgui.plotWindow(tab_fil, position=True)
-        self.filter_plot.setFixedHeight(self.height()-60)
+        self.filter_plot.setFixedHeight(self.height()-80)
         self.filter_plot.setFixedWidth(765)
         self.filter_plot.setGraphXLabel("Energy [eV]")
         self.filter_plot.setGraphYLabel("Intensity Factor")
         self.filter_plot.setGraphTitle("Filter on Flux")
 
-        self.set_Autobinning()
+        self.set_autobinning()
 
-    def set_Autobinning(self):
+    def set_autobinning(self):
         self.autobinning_box_1.setVisible(self.autobinning==0)
         self.autobinning_box_2.setVisible(self.autobinning==1 or self.autobinning==2)
         self.text_area.setReadOnly(self.autobinning>=1)
         self.text_area.setFixedHeight(201 if self.autobinning>=1 else 290)
 
-    def set_LoadFileMode(self):
+    def set_load_file_mode(self):
         self.load_file_mode_box_1.setVisible(self.load_file_mode==0)
         self.load_file_mode_box_2.setVisible(self.load_file_mode==1)
 
-    def selectAutobinningFile(self):
+    def select_autobinning_file(self):
         self.le_autobinning_file_name.setText(oasysgui.selectFileFromDialog(self, self.autobinning_file_name, "Select File", file_extension_filter="Text Files (*.txt *.dat)"))
 
-    def selectRecoveryFile(self):
+    def select_recovery_file(self):
         self.le_recovery_file_name.setText(oasysgui.selectFileFromDialog(self, self.recovery_file_name, "Select File", file_extension_filter="HDF5 Files (*.hdf5)"))
 
         try:
@@ -397,8 +354,7 @@ class PowerLoopPoint(widget.OWWidget):
 
             if self.IS_DEVELOP: raise e
 
-
-    def selectFiltersFile(self):
+    def select_filters_file(self):
         self.le_filters_file_name.setText(oasysgui.selectFileFromDialog(self, self.filters_file_name, "Select File", file_extension_filter="Text Files (*.txt *.dat)"))
 
     def read_spectrum_file(self, reset_filters=True):
@@ -416,10 +372,10 @@ class PowerLoopPoint(widget.OWWidget):
 
             data = numpy.loadtxt(autobinning_file_name, skiprows=skip_rows)
 
-            calculated_data = DataExchangeObject(program_name="ShadowOui", widget_name="PowerLoopPoint")
+            calculated_data = DataExchangeObject(program_name="Shadow4", widget_name="PowerLoopPoint")
             calculated_data.add_content("spectrum_data", data)
 
-            self.acceptEnergySpectrum(calculated_data)
+            self.accept_energy_spectrum(calculated_data)
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e), QMessageBox.Ok)
 
@@ -442,7 +398,7 @@ class PowerLoopPoint(widget.OWWidget):
             calculated_data = DataExchangeObject(program_name="ShadowOui", widget_name="PowerLoopPoint")
             calculated_data.add_content("filters_data", data)
 
-            self.acceptFilters(calculated_data)
+            self.accept_filters(calculated_data)
         except Exception as e:
             self.filters = None
 
@@ -452,38 +408,16 @@ class PowerLoopPoint(widget.OWWidget):
 
         self.read_spectrum_file(False)
 
-    ''' not used anymore, but...
-    def receive_syned_data(self, data):
-        if not data is None:
-            try:
-                if not data._light_source is None and isinstance(data._light_source, LightSource):
-                    light_source = data._light_source
-
-                    self.electron_energy = light_source._electron_beam._energy_in_GeV
-
-                    self.K_horizontal = light_source._magnetic_structure._K_horizontal
-                    self.K_vertical = light_source._magnetic_structure._K_vertical
-                    self.period_length = light_source._magnetic_structure._period_length
-                    self.number_of_periods = light_source._magnetic_structure._number_of_periods
-                else:
-                    raise ValueError("Syned data not correct")
-            except Exception as exception:
-                QMessageBox.critical(self, "Error", str(exception), QMessageBox.Ok)
-
-                if self.IS_DEVELOP: raise exception
-
-    def receive_specific_syned_data(self, data):
-        raise NotImplementedError()
-    '''
-
-    def acceptFilters(self, exchange_data):
+    
+    @Inputs.filters
+    def accept_filters(self, exchange_data):
         if not exchange_data is None:
             try:
                 try:
                     data = exchange_data.get_content("filters_data")
                     write_file = False
                 except:
-                    if not exchange_data.get_program_name() in ["XOPPY", "ShadowOui_Thermal"]: raise ValueError("Only XOPPY or ShadowOui-Thermal widgets are accepted")
+                    if not exchange_data.get_program_name() in ["XOPPY", "Shadow4-Thermal"]: raise ValueError("Only XOPPY or Shadow4-Thermal widgets are accepted")
                     if not exchange_data.get_widget_name() in ["XF1F2", "POWER", "XCRYSTAL", "MULTILAYER", "TOTAL_FILTER"]: raise ValueError("Only XF1F2, POWER, XCRYSTAL, MULTILAYER, Total Filter Calculator widgets are accepted")
 
                     if exchange_data.get_widget_name() == "TOTAL_FILTER":
@@ -504,7 +438,7 @@ class PowerLoopPoint(widget.OWWidget):
                             elif exchange_data.get_widget_name() == "MULTILAYER":
                                 reflectivity_s = input_data[:, 1]
                                 reflectivity_p = input_data[:, 2]
-
+                            
                             reflectivity_s[numpy.where(numpy.isnan(reflectivity_s))] = 0
                             reflectivity_p[numpy.where(numpy.isnan(reflectivity_p))] = 0
 
@@ -530,7 +464,7 @@ class PowerLoopPoint(widget.OWWidget):
                     file.close()
 
                     self.load_file_mode = 1 # back to automatic
-                    self.set_LoadFileMode()
+                    self.set_load_file_mode()
 
                 self.filter_plot.clear()
                 self.filter_plot.addCurve(energies, intensity_factors, replace=True, legend="Intensity Factor")
@@ -547,14 +481,15 @@ class PowerLoopPoint(widget.OWWidget):
                     calculated_data = DataExchangeObject(program_name="ShadowOui", widget_name="PowerLoopPoint")
                     calculated_data.add_content("spectrum_data", self.spectrum_data)
 
-                    self.acceptEnergySpectrum(calculated_data)
+                    self.accept_energy_spectrum(calculated_data)
 
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e), QMessageBox.Ok)
 
                 if self.IS_DEVELOP: raise e
-
-    def acceptEnergySpectrum(self, exchange_data):
+    
+    @Inputs.energy_spectrum
+    def accept_energy_spectrum(self, exchange_data):
         if not exchange_data is None:
             try:
                 try:
@@ -588,7 +523,7 @@ class PowerLoopPoint(widget.OWWidget):
                     file.close()
 
                     self.load_file_mode = 1 # back to automatic
-                    self.set_LoadFileMode()
+                    self.set_load_file_mode()
 
                 if self.autobinning==0:
                     if write_file: QMessageBox.information(self, "Info", "File autobinning.dat written on working directory, switch to Automatic binning to load it", QMessageBox.Ok)
@@ -748,15 +683,17 @@ class PowerLoopPoint(widget.OWWidget):
     def reset_values(self):
         self.current_new_object = 0
         self.total_current_new_object = 0
-        self.current_energy_value = None
+        self.current_energy_value = NONE
         self.current_energy_step = None
         self.current_energy_binning = -1
         self.current_power_step = None
 
         if not self.external_binning: self.energy_binnings = None
 
-    def startLoop(self):
+    def start_loop(self):
         try:
+            if self.spectrum_data is None: raise ValueError("Initialize Loop point from Spectrum Data (Reload or from Widget)")
+
             self.calculate_energy_binnings()
 
             self.current_new_object = 1
@@ -770,33 +707,33 @@ class PowerLoopPoint(widget.OWWidget):
             self.start_button.setEnabled(False)
             self.text_area.setEnabled(False)
             self.setStatusMessage("Running " + self.get_object_name() + " " + str(self.total_current_new_object) + " of " + str(self.total_new_objects))
-            self.send("Trigger", TriggerOut(new_object=True,
-                                            additional_parameters={"energy_value"   : self.current_energy_value,
-                                                                   "energy_step"    : self.current_energy_step,
-                                                                   "power_step"     : -1 if self.current_power_step is None else self.current_power_step,
-                                                                   "seed_increment" : self.seed_increment,
-                                                                   "current_step"   : self.total_current_new_object,
-                                                                   "total_steps"    : self.total_new_objects,
-                                                                   "start_event"    : True}))
+            self.Outputs.trigger.send(TriggerOut(new_object=True,
+                                                 additional_parameters={"energy_value"   : self.current_energy_value,
+                                                                        "energy_step"    : self.current_energy_step,
+                                                                        "power_step"     : -1 if self.current_power_step is None else self.current_power_step,
+                                                                        "seed_increment" : self.seed_increment,
+                                                                        "current_step"   : self.total_current_new_object,
+                                                                        "total_steps"    : self.total_new_objects,
+                                                                        "start_event"    : True}))
         except Exception as e:
             if self.IS_DEVELOP : raise e
             else: pass
 
-    def stopLoop(self):
+    def stop_loop(self):
         try:
             if ConfirmDialog.confirmed(parent=self, message="Confirm Interruption of the Loop?"):
-                self.run_loop = False
+                self._run_loop = False
                 self.reset_values()
                 self.setStatusMessage("Interrupted by user")
         except Exception as e:
             if self.IS_DEVELOP : raise e
             else: pass
 
-    def suspendLoop(self):
+    def suspend_loop(self):
         try:
             if ConfirmDialog.confirmed(parent=self, message="Confirm Suspension of the Loop?"):
-                self.run_loop = False
-                self.suspend_loop = True
+                self._run_loop = False
+                self._suspend_loop = True
                 self.stop_button.setEnabled(False)
                 self.re_start_button.setEnabled(True)
                 self.setStatusMessage("Suspended by user")
@@ -804,7 +741,7 @@ class PowerLoopPoint(widget.OWWidget):
             if self.IS_DEVELOP : raise e
             else: pass
 
-    def restartLoopFromCrash(self):
+    def restart_loop_from_crash(self):
         try:
             if self.energy_binnings is None: raise Exception("Reload Spectrum (and Filters, if present) before restarting the loop")
 
@@ -822,7 +759,7 @@ class PowerLoopPoint(widget.OWWidget):
                 self.setStatusMessage("Running " + self.get_object_name() + " " + str(self.total_current_new_object) + " of " + str(self.total_new_objects))
                 self.start_button.setEnabled(False)
                 self.text_area.setEnabled(False)
-                self.send("Trigger", TriggerOut(new_object=True,
+                self.Outputs.trigger.send(TriggerOut(new_object=True,
                                                 additional_parameters={"energy_value": self.current_energy_value,
                                                                        "energy_step": energy_binning.energy_step,
                                                                        "power_step": -1 if self.current_power_step is None else self.current_power_step,
@@ -835,29 +772,30 @@ class PowerLoopPoint(widget.OWWidget):
 
             if self.IS_DEVELOP: raise e
 
-    def restartLoop(self):
+    def restart_loop(self):
         try:
-            self.run_loop = True
-            self.suspend_loop = False
+            self._run_loop = True
+            self._suspend_loop = False
             self.stop_button.setEnabled(True)
             self.re_start_button.setEnabled(False)
-            self.passTrigger(TriggerIn(new_object=True))
+            self.pass_trigger(TriggerIn(new_object=True))
         except Exception as e:
             if self.IS_DEVELOP : raise e
             else: pass
 
     def get_object_name(self):
-        return "Beam"
+        return "Shadow4 Beam"
 
-    def passTrigger(self, trigger):
-        if self.run_loop:
+    @Inputs.trigger
+    def pass_trigger(self, trigger):
+        if self._run_loop:
             if trigger:
                 if trigger.interrupt:
                     self.reset_values()
                     self.start_button.setEnabled(True)
                     self.text_area.setEnabled(True)
                     self.setStatusMessage("")
-                    self.send("Trigger", TriggerOut(new_object=False))
+                    self.Outputs.trigger.send(TriggerOut(new_object=False))
                 elif trigger.new_object:
                     if self.energy_binnings is None: self.calculate_energy_binnings()
 
@@ -871,7 +809,7 @@ class PowerLoopPoint(widget.OWWidget):
                         self.total_current_new_object += 1
 
                         if self.current_new_object < self.number_of_new_objects:
-                            if self.current_energy_value is None:
+                            if self.current_energy_value == NONE:
                                 self.current_new_object = 1
                                 self.calculate_number_of_new_objects()
                                 self.current_energy_value = round(energy_binning.energy_value, 8)
@@ -884,14 +822,14 @@ class PowerLoopPoint(widget.OWWidget):
                             self.setStatusMessage("Running " + self.get_object_name() + " " + str(self.total_current_new_object) + " of " + str(self.total_new_objects))
                             self.start_button.setEnabled(False)
                             self.text_area.setEnabled(False)
-                            self.send("Trigger", TriggerOut(new_object=True,
-                                                            additional_parameters={"energy_value"   : self.current_energy_value,
-                                                                                   "energy_step"    : energy_binning.energy_step,
-                                                                                   "power_step"     : -1 if self.current_power_step is None else self.current_power_step,
-                                                                                   "current_step"   : self.total_current_new_object,
-                                                                                   "total_steps"    : self.total_new_objects,
-                                                                                   "seed_increment" : self.seed_increment,
-                                                                                   "start_event"    : False}))
+                            self.Outputs.trigger.send(TriggerOut(new_object=True,
+                                                                 additional_parameters={"energy_value"   : self.current_energy_value,
+                                                                                        "energy_step"    : energy_binning.energy_step,
+                                                                                        "power_step"     : -1 if self.current_power_step is None else self.current_power_step,
+                                                                                        "current_step"   : self.total_current_new_object,
+                                                                                        "total_steps"    : self.total_new_objects,
+                                                                                        "seed_increment" : self.seed_increment,
+                                                                                        "start_event"    : False}))
                         else:
                             self.current_energy_binning += 1
 
@@ -906,41 +844,37 @@ class PowerLoopPoint(widget.OWWidget):
                                 self.setStatusMessage("Running " + self.get_object_name() + " " + str(self.total_current_new_object) + " of " + str(self.total_new_objects))
                                 self.start_button.setEnabled(False)
                                 self.text_area.setEnabled(False)
-                                self.send("Trigger", TriggerOut(new_object=True,
-                                                                additional_parameters={"energy_value"   : self.current_energy_value,
-                                                                                       "energy_step"    : energy_binning.energy_step,
-                                                                                       "power_step"     : -1 if self.current_power_step is None else self.current_power_step,
-                                                                                       "current_step"   : self.total_current_new_object,
-                                                                                       "total_steps"    : self.total_new_objects,
-                                                                                       "seed_increment" : self.seed_increment,
-                                                                                       "start_event"    : False}))
+                                self.Outputs.trigger.send(TriggerOut(new_object=True,
+                                                                     additional_parameters={"energy_value"   : self.current_energy_value,
+                                                                                            "energy_step"    : energy_binning.energy_step,
+                                                                                            "power_step"     : -1 if self.current_power_step is None else self.current_power_step,
+                                                                                            "current_step"   : self.total_current_new_object,
+                                                                                            "total_steps"    : self.total_new_objects,
+                                                                                            "seed_increment" : self.seed_increment,
+                                                                                            "start_event"    : False}))
                             else:
                                 self.reset_values()
                                 self.start_button.setEnabled(True)
                                 self.text_area.setEnabled(True)
                                 self.setStatusMessage("")
-                                self.send("Trigger", TriggerOut(new_object=False))
+                                self.Outputs.trigger.send(TriggerOut(new_object=False))
                     else:
                         self.reset_values()
                         self.start_button.setEnabled(True)
                         self.text_area.setEnabled(True)
                         self.setStatusMessage("")
-                        self.send("Trigger", TriggerOut(new_object=False))
+                        self.Outputs.trigger.send(TriggerOut(new_object=False))
         else:
-            if not self.suspend_loop:
+            if not self._suspend_loop:
                 self.reset_values()
                 self.start_button.setEnabled(True)
                 self.text_area.setEnabled(True)
 
-            self.send("Trigger", TriggerOut(new_object=False))
+            self.Outputs.trigger.send(TriggerOut(new_object=False))
             self.setStatusMessage("")
-            self.suspend_loop = False
-            self.run_loop = True
+            self._suspend_loop = False
+            self._run_loop = True
 
-if __name__ == "__main__":
-    a = QApplication(sys.argv)
-    ow = PowerLoopPoint()
-    ow.show()
-    a.exec_()
-    ow.saveSettings()
+
+add_widget_parameters_to_module(__name__)
 

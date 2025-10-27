@@ -44,6 +44,7 @@
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE         #
 # POSSIBILITY OF SUCH DAMAGE.                                             #
 # ----------------------------------------------------------------------- #
+
 import os, sys, copy, re
 import time
 import numpy
@@ -53,28 +54,35 @@ import scipy.ndimage.fourier as fourier
 from scipy.optimize import least_squares
 from numpy.polynomial.polynomial import polyval2d
 
-from PyQt5.QtWidgets import QMessageBox, QInputDialog, QDialog, \
-    QLabel, QVBoxLayout, QDialogButtonBox, QSizePolicy
-from PyQt5.QtGui import QTextCursor, QPixmap, QFont, QColor, QPalette
-from PyQt5.QtCore import Qt
+from AnyQt.QtWidgets import QMessageBox, QInputDialog, QDialog, \
+    QLabel, QVBoxLayout, QDialogButtonBox, QSizePolicy, QWidget
+from AnyQt.QtGui import QTextCursor, QPixmap, QFont, QColor, QPalette
+from AnyQt.QtCore import Qt
+
+from silx.gui.plot import Plot2D
 
 import orangecanvas.resources as resources
 
 from orangewidget import gui
 from orangewidget.settings import Setting
-from oasys.widgets import gui as oasysgui
-from oasys.widgets import congruence
-from oasys.widgets.gui import ConfirmDialog
+from orangewidget.widget import Input
 
-from oasys.util.oasys_util import EmittingStream
+from oasys2.widget import gui as oasysgui
+from oasys2.widget.util import congruence
+from oasys2.widget.util.widget_util import EmittingStream
+from orangewidget.workflow.config import data_dir
 
-from orangecontrib.shadow.util.shadow_objects import ShadowBeam
-from orangecontrib.shadow.util.shadow_util import ShadowCongruence, ShadowPlot
-from orangecontrib.shadow.widgets.gui.ow_automatic_element import AutomaticElement
-from orangecontrib.shadow_advanced_tools.util.gui import PowerPlotXYWidget
+from shadow4.beam.s4_beam import S4Beam
 
-import scipy.constants as codata
+try:
+    from orangecontrib.shadow4.util.shadow4_objects import ShadowData
+    from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, ShadowPlot, ShadowPhysics
+    from orangecontrib.shadow4.widgets.gui.ow_automatic_element import AutomaticElement
+except ImportError:
+    pass
 
+try:    from mpl_toolkits.mplot3d import Axes3D  # mandatory to load 3D plot
+except: pass
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 
 cdict_temperature = {'red': ((0.0, 0.0, 0.0),
@@ -92,6 +100,501 @@ cdict_temperature = {'red': ((0.0, 0.0, 0.0),
 
 cmap_temperature = LinearSegmentedColormap('temperature', cdict_temperature, 256)
 
+import scipy.constants as codata
+
+TO_MM = 1e3
+
+class PowerPlotXYWidget(QWidget):
+    def __init__(self, parent=None):
+        pass
+
+        super(QWidget, self).__init__(parent=parent)
+
+        self.plot_canvas = None
+        self.cumulated_power_plot = 0.0
+        self.cumulated_previous_power_plot = 0.0
+
+        self.setLayout(QVBoxLayout())
+
+    def manage_empty_beam(self, ticket_to_add, nbins_h, nbins_v, xrange, yrange, var_x, var_y, cumulated_total_power, energy_min, energy_max, energy_step, show_image, cumulated_quantity=0):
+        if not ticket_to_add is None:
+            ticket = copy.deepcopy(ticket_to_add)
+            last_ticket = copy.deepcopy(ticket_to_add)
+        else:
+            ticket = {}
+            ticket["histogram"] = numpy.zeros((nbins_h, nbins_v))
+            ticket['intensity'] = numpy.zeros((nbins_h, nbins_v))
+            ticket['nrays'] = 0
+            ticket['good_rays'] = 0
+
+            if not xrange is None and not yrange is None:
+                ticket['bin_h_center'] = numpy.arange(xrange[0], xrange[1], nbins_h) * TO_MM
+                ticket['bin_v_center'] = numpy.arange(yrange[0], yrange[1], nbins_v) * TO_MM
+            else:
+                raise ValueError("Beam is empty and no range has been specified: Calculation is impossible")
+
+        self.plot_power_density_ticket(ticket, var_x, var_y, cumulated_total_power, energy_min, energy_max, energy_step, show_image, cumulated_quantity)
+
+        if not ticket_to_add is None:
+            return ticket, last_ticket
+        else:
+            return ticket, None
+
+    def plot_power_density_BM(self, shadow_data, initial_energy, initial_flux, nbins_interpolation,
+                              var_x, var_y, nbins_h=100, nbins_v=100, xrange=None, yrange=None, nolost=1, show_image=True, cumulated_quantity=0):
+        n_rays = len(shadow_data.beam.rays[:, 0])  # lost and good!
+
+        if n_rays == 0:
+            ticket, _ = self.manage_empty_beam(None,
+                                               nbins_h,
+                                               nbins_v,
+                                               xrange,
+                                               yrange,
+                                               var_x,
+                                               var_y,
+                                               0.0,
+                                               0.0,
+                                               0.0,
+                                               0.0,
+                                               show_image)
+            return ticket
+        
+        from shadow4.beamline.s4_beamline import S4Beamline
+        from shadow4.beamline.s4_beamline_element import S4BeamlineElement
+        
+        beamline: S4Beamline = shadow_data.beamline
+        first_oe: S4BeamlineElement = beamline.get_beamline_element_at(0)
+        last_oe: S4BeamlineElement = beamline.get_beamline_element_at(-1)
+        
+        source_beam = first_oe.get_input_beam()
+
+        if last_oe.get_input_beam() is None: previous_beam = shadow_data.beam
+        else:                                previous_beam = last_oe.get_input_beam().duplicate()
+
+        rays_energy  = ShadowPhysics.getEnergyFromShadowK(shadow_data.beam.rays[:, 10])
+        energy_range = [numpy.min(rays_energy), numpy.max(rays_energy)]
+
+        ticket_initial = source_beam.histo1(11, xrange=energy_range, nbins=nbins_interpolation, nolost=1, ref=23)
+
+        energy_bins = ticket_initial["bin_center"]
+
+        energy_min  = energy_bins[0]
+        energy_max  = energy_bins[-1]
+        energy_step = energy_bins[1] - energy_bins[0]
+
+        initial_flux_shadow  = numpy.interp(energy_bins, initial_energy, initial_flux, left=initial_flux[0], right=initial_flux[-1])
+        initial_power_shadow = initial_flux_shadow * 1e3 * codata.e * energy_step
+
+        total_initial_power_shadow = initial_power_shadow.sum()
+
+        print("Total Initial Power from Shadow", total_initial_power_shadow)
+
+        if nolost > 1:  # must be calculating only the rays the become lost in the last object
+            current_beam = shadow_data.beam
+
+            if last_oe.get_input_beam() is None: 
+                beam = shadow_data.beam
+            else:
+                if nolost == 2:
+                    current_lost_rays_cursor = numpy.where(current_beam.rays[:, 9] != 1)
+
+                    current_lost_rays = current_beam.rays[current_lost_rays_cursor]
+                    lost_rays_in_previous_beam = previous_beam.rays[current_lost_rays_cursor]
+
+                    lost_that_were_good_rays_cursor = numpy.where(lost_rays_in_previous_beam[:, 9] == 1)
+
+                    beam = S4Beam()
+                    beam.rays = current_lost_rays[lost_that_were_good_rays_cursor]  # lost rays that were good after the previous OE
+
+                    # in case of filters, Shadow computes the absorption for lost rays. This cause an imbalance on the total power.
+                    # the lost rays that were good must have the same intensity they had before the optical element.
+
+                    beam.rays[:, 6]  = lost_rays_in_previous_beam[lost_that_were_good_rays_cursor][:, 6]
+                    beam.rays[:, 7]  = lost_rays_in_previous_beam[lost_that_were_good_rays_cursor][:, 7]
+                    beam.rays[:, 8]  = lost_rays_in_previous_beam[lost_that_were_good_rays_cursor][:, 8]
+                    beam.rays[:, 15] = lost_rays_in_previous_beam[lost_that_were_good_rays_cursor][:, 15]
+                    beam.rays[:, 16] = lost_rays_in_previous_beam[lost_that_were_good_rays_cursor][:, 16]
+                    beam.rays[:, 17] = lost_rays_in_previous_beam[lost_that_were_good_rays_cursor][:, 17]
+                    beam.rays[:, 9]  = 1
+                else:
+                    incident_rays    = previous_beam.rays
+                    transmitted_rays = current_beam.rays
+
+                    incident_intensity = incident_rays[:, 6] ** 2 + incident_rays[:, 7] ** 2 + incident_rays[:, 8] ** 2 + \
+                                         incident_rays[:, 15] ** 2 + incident_rays[:, 16] ** 2 + incident_rays[:, 17] ** 2
+                    transmitted_intensity = transmitted_rays[:, 6] ** 2 + transmitted_rays[:, 7] ** 2 + transmitted_rays[:, 8] ** 2 + \
+                                            transmitted_rays[:, 15] ** 2 + transmitted_rays[:, 16] ** 2 + transmitted_rays[:, 17] ** 2
+
+                    electric_field = numpy.sqrt(incident_intensity - transmitted_intensity)
+                    electric_field[numpy.where(electric_field == numpy.nan)] = 0.0
+
+                    beam = S4Beam()
+                    beam.rays = copy.deepcopy(shadow_data.beam.rays)
+
+                    beam.rays[:, 6] = electric_field
+                    beam.rays[:, 7] = 0.0
+                    beam.rays[:, 8] = 0.0
+                    beam.rays[:, 15] = 0.0
+                    beam.rays[:, 16] = 0.0
+                    beam.rays[:, 17] = 0.0
+        else:
+            beam = shadow_data.beam
+
+        if len(beam.rays) == 0:
+            ticket, _ = self.manage_empty_beam(None,
+                                               nbins_h,
+                                               nbins_v,
+                                               xrange,
+                                               yrange,
+                                               var_x,
+                                               var_y,
+                                               0.0,
+                                               energy_min,
+                                               energy_max,
+                                               energy_step,
+                                               show_image)
+            return ticket
+
+        ticket_incident = previous_beam.histo1(11, xrange=energy_range, nbins=nbins_interpolation, nolost=1, ref=23)  # intensity of good rays per bin incident
+        ticket_final    = beam.histo1(11, xrange=energy_range, nbins=nbins_interpolation, nolost=1, ref=23)  # intensity of good rays per bin
+
+        good = numpy.where(ticket_initial["histogram"] > 0)
+
+        efficiency_incident = numpy.zeros(len(ticket_incident["histogram"]))
+        efficiency_incident[good] = ticket_incident["histogram"][good] / ticket_initial["histogram"][good]
+
+        incident_power_shadow = initial_power_shadow * efficiency_incident
+
+        total_incident_power_shadow = incident_power_shadow.sum()
+        print("Total Incident Power from Shadow", total_incident_power_shadow)
+
+        efficiency_final = numpy.zeros(len(ticket_final["histogram"]))
+        efficiency_final[good] = ticket_final["histogram"][good] / ticket_initial["histogram"][good]
+
+        final_power_shadow = initial_power_shadow * efficiency_final
+
+        total_final_power_shadow = final_power_shadow.sum()
+        print("Total Final Power from Shadow", total_final_power_shadow)
+
+        # CALCULATE POWER DENSITY PER EACH RAY -------------------------------------------------------
+
+        ticket = beam.histo1(11, xrange=energy_range, nbins=nbins_interpolation, nolost=1, ref=0)  # number of rays per bin
+        good   = numpy.where(ticket["histogram"] > 0)
+
+        final_power_per_ray = numpy.zeros(len(final_power_shadow))
+        final_power_per_ray[good] = final_power_shadow[good] / ticket["histogram"][good]
+
+        go = numpy.where(beam.rays[:, 9] == 1)
+
+        rays_energy = ShadowPhysics.getEnergyFromShadowK(beam.rays[go, 10])
+
+        ticket = beam.histo2(var_x, var_y, nbins_h=nbins_h, nbins_v=nbins_v, xrange=xrange, yrange=yrange, nolost=1, ref=0)
+
+        ticket['bin_h_center'] *= TO_MM
+        ticket['bin_v_center'] *= TO_MM
+        pixel_area = (ticket['bin_h_center'][1] - ticket['bin_h_center'][0]) * (ticket['bin_v_center'][1] - ticket['bin_v_center'][0])
+
+        power_density = numpy.interp(rays_energy, energy_bins, final_power_per_ray, left=0, right=0) / pixel_area
+
+        final_beam = S4Beam()
+        final_beam.rays = copy.deepcopy(beam.rays)
+
+        final_beam.rays[go, 6] = numpy.sqrt(power_density)
+        final_beam.rays[go, 7] = 0.0
+        final_beam.rays[go, 8] = 0.0
+        final_beam.rays[go, 15] = 0.0
+        final_beam.rays[go, 16] = 0.0
+        final_beam.rays[go, 17] = 0.0
+
+        ticket = final_beam.histo2(var_x, var_y,
+                                   nbins_h=nbins_h, nbins_v=nbins_v, xrange=xrange, yrange=yrange,
+                                   nolost=1, ref=23)
+
+        ticket['histogram'][numpy.where(ticket['histogram'] < 1e-15)] = 0.0
+
+        ticket['h_label'] = var_x
+        ticket['v_label'] = var_y
+
+        self.cumulated_previous_power_plot = total_incident_power_shadow
+        self.cumulated_power_plot = total_final_power_shadow
+
+        self.plot_power_density_ticket(ticket, var_x, var_y, total_initial_power_shadow, energy_min, energy_max, energy_step, show_image, cumulated_quantity)
+
+        return ticket
+
+    def plot_power_density(self, shadow_data, var_x, var_y, total_power, cumulated_total_power, energy_min, energy_max, energy_step,
+                           nbins_h=100, nbins_v=100, xrange=None, yrange=None, nolost=1, ticket_to_add=None, show_image=True,
+                           kind_of_calculation=0,
+                           replace_poor_statistic=0,
+                           good_rays_limit=100,
+                           center_x=0.0,
+                           center_y=0.0,
+                           sigma_x=1.0,
+                           sigma_y=1.0,
+                           gamma=1.0,
+                           cumulated_quantity=0):
+
+        n_rays = shadow_data.beam.get_number_of_rays()  # lost and good!
+
+        if n_rays == 0:
+            return self.manage_empty_beam(ticket_to_add,
+                                          nbins_h,
+                                          nbins_v,
+                                          xrange,
+                                          yrange,
+                                          var_x,
+                                          var_y,
+                                          cumulated_total_power,
+                                          energy_min,
+                                          energy_max,
+                                          energy_step,
+                                          show_image)
+
+
+        beamline = shadow_data.beamline
+        if not beamline is None: last_oe = beamline.get_beamline_element_at(-1)
+        else:                    last_oe = None
+
+        previous_beam = None
+
+        if shadow_data.scanning_data and shadow_data.scanning_data.has_additional_parameter("incident_power"):
+            self.cumulated_previous_power_plot += shadow_data.scanning_data.get_additional_parameter("incident_power")
+        elif not last_oe is None and not last_oe.get_input_beam() is None:
+            previous_ticket = last_oe.get_input_beam().histo2(var_x, var_y, nbins_h=nbins_h, nbins_v=nbins_v, xrange=None, yrange=None, nolost=1, ref=23)
+            previous_ticket['histogram'] *= (total_power / n_rays)  # power
+
+            self.cumulated_previous_power_plot += previous_ticket['histogram'].sum()
+
+        if nolost > 1:  # must be calculating only the rays the become lost in the last object
+            current_beam = shadow_data
+
+            if last_oe is None or last_oe.get_input_beam() is None:
+                beam = shadow_data.beam
+            else:
+                previous_beam = previous_beam if previous_beam else last_oe.get_input_beam().duplicate()
+
+                if nolost == 2:
+                    current_lost_rays_cursor = numpy.where(current_beam.rays[:, 9] != 1)
+
+                    current_lost_rays = current_beam.rays[current_lost_rays_cursor]
+                    lost_rays_in_previous_beam = previous_beam.rays[current_lost_rays_cursor]
+
+                    lost_that_were_good_rays_cursor = numpy.where(lost_rays_in_previous_beam[:, 9] == 1)
+
+                    beam = S4Beam()
+                    beam.rays = current_lost_rays[lost_that_were_good_rays_cursor]  # lost rays that were good after the previous OE
+
+                    # in case of filters, Shadow computes the absorption for lost rays. This cause an imbalance on the total power.
+                    # the lost rays that were good must have the same intensity they had before the optical element.
+
+                    beam.rays[:, 6] = lost_rays_in_previous_beam[lost_that_were_good_rays_cursor][:, 6]
+                    beam.rays[:, 7] = lost_rays_in_previous_beam[lost_that_were_good_rays_cursor][:, 7]
+                    beam.rays[:, 8] = lost_rays_in_previous_beam[lost_that_were_good_rays_cursor][:, 8]
+                    beam.rays[:, 15] = lost_rays_in_previous_beam[lost_that_were_good_rays_cursor][:, 15]
+                    beam.rays[:, 16] = lost_rays_in_previous_beam[lost_that_were_good_rays_cursor][:, 16]
+                    beam.rays[:, 17] = lost_rays_in_previous_beam[lost_that_were_good_rays_cursor][:, 17]
+                    beam.rays[:, 9] = 1
+                else:
+                    incident_rays    = previous_beam.rays
+                    transmitted_rays = current_beam.rays
+
+                    incident_intensity = incident_rays[:, 6] ** 2 + incident_rays[:, 7] ** 2 + incident_rays[:, 8] ** 2 + \
+                                         incident_rays[:, 15] ** 2 + incident_rays[:, 16] ** 2 + incident_rays[:, 17] ** 2
+                    transmitted_intensity = transmitted_rays[:, 6] ** 2 + transmitted_rays[:, 7] ** 2 + transmitted_rays[:, 8] ** 2 + \
+                                            transmitted_rays[:, 15] ** 2 + transmitted_rays[:, 16] ** 2 + transmitted_rays[:, 17] ** 2
+
+                    electric_field = numpy.sqrt(incident_intensity - transmitted_intensity)
+                    electric_field[numpy.where(electric_field == numpy.nan)] = 0.0
+
+                    beam = S4Beam()
+                    beam.rays = copy.deepcopy(shadow_data.beam.rays)
+
+                    beam.rays[:, 6] = electric_field
+                    beam.rays[:, 7] = 0.0
+                    beam.rays[:, 8] = 0.0
+                    beam.rays[:, 15] = 0.0
+                    beam.rays[:, 16] = 0.0
+                    beam.rays[:, 17] = 0.0
+        else:
+            beam = shadow_data.beam
+
+        if len(beam.rays) == 0:
+            return self.manage_empty_beam(ticket_to_add,
+                                          nbins_h,
+                                          nbins_v,
+                                          xrange,
+                                          yrange,
+                                          var_x,
+                                          var_y,
+                                          cumulated_total_power,
+                                          energy_min,
+                                          energy_max,
+                                          energy_step,
+                                          show_image)
+
+        ticket = beam.histo2(var_x, var_y, nbins_h=nbins_h, nbins_v=nbins_v, xrange=xrange, yrange=yrange, nolost=1 if nolost != 2 else 2, ref=23)
+
+        ticket['bin_h_center'] *= TO_MM
+        ticket['bin_v_center'] *= TO_MM
+
+        bin_h_size = (ticket['bin_h_center'][1] - ticket['bin_h_center'][0])
+        bin_v_size = (ticket['bin_v_center'][1] - ticket['bin_v_center'][0])
+
+        if kind_of_calculation > 0:
+            if replace_poor_statistic == 0 or (replace_poor_statistic == 1 and ticket['good_rays'] < good_rays_limit):
+                if kind_of_calculation == 1:  # FLAT
+                    PowerPlotXYWidget.get_flat_2d(ticket['histogram'], ticket['bin_h_center'], ticket['bin_v_center'])
+                elif kind_of_calculation == 2:  # GAUSSIAN
+                    PowerPlotXYWidget.get_gaussian_2d(ticket['histogram'], ticket['bin_h_center'], ticket['bin_v_center'],
+                                                      sigma_x, sigma_y, center_x, center_y)
+                elif kind_of_calculation == 3:  # LORENTZIAN
+                    PowerPlotXYWidget.get_lorentzian_2d(ticket['histogram'], ticket['bin_h_center'], ticket['bin_v_center'],
+                                                        gamma, center_x, center_y)
+                # rinormalization
+                ticket['histogram'] *= ticket['intensity']
+
+        ticket['histogram'][numpy.where(ticket['histogram'] < 1e-9)] = 0.0
+        ticket['histogram'] *= (total_power / n_rays)  # power
+
+        if ticket_to_add == None:
+            self.cumulated_power_plot = ticket['histogram'].sum()
+        else:
+            self.cumulated_power_plot += ticket['histogram'].sum()
+
+        ticket['histogram'] /= (bin_h_size * bin_v_size)  # power density
+
+        if not ticket_to_add is None:
+            last_ticket = copy.deepcopy(ticket)
+
+            ticket['histogram'] += ticket_to_add['histogram']
+            ticket['intensity'] += ticket_to_add['intensity']
+            ticket['nrays'] += ticket_to_add['nrays']
+            ticket['good_rays'] += ticket_to_add['good_rays']
+
+        ticket['h_label'] = var_x
+        ticket['v_label'] = var_y
+
+        # data for reload of the file
+        ticket['energy_min'] = energy_min
+        ticket['energy_max'] = energy_max
+        ticket['energy_step'] = energy_step
+        ticket['plotted_power'] = self.cumulated_power_plot
+        ticket['incident_power'] = self.cumulated_previous_power_plot
+        ticket['total_power'] = cumulated_total_power
+
+        self.plot_power_density_ticket(ticket, var_x, var_y, cumulated_total_power, energy_min, energy_max, energy_step, show_image, cumulated_quantity)
+
+        if not ticket_to_add is None:
+            return ticket, last_ticket
+        else:
+            return ticket, None
+
+    def plot_power_density_ticket(self, ticket, var_x, var_y, cumulated_total_power, energy_min, energy_max, energy_step, show_image=True, cumulated_quantity=0):
+        if show_image:
+            histogram = ticket['histogram']
+
+            average_power_density = numpy.average(histogram[numpy.where(histogram > 0.0)])
+
+            if cumulated_quantity == 0:  # Power density
+                title = "Power Density [W/mm\u00b2] from " + str(round(energy_min, 2)) + " to " + str(round(energy_max + energy_step, 2)) + " [eV], Current Step: " + str(round(energy_step, 2)) + "\n" + \
+                        "Power [W]: Plot=" + str(round(self.cumulated_power_plot, 3)) + \
+                        ", Incid.=" + str(round(self.cumulated_previous_power_plot, 3)) + \
+                        ", Tot.=" + str(round(cumulated_total_power, 3)) + \
+                        ", <PD>=" + str(round(average_power_density, 3)) + " W/mm\u00b2"
+            elif cumulated_quantity == 1:  # Intensity
+                title = "Intensity [ph/s/mm\u00b2] from " + str(round(energy_min, 2)) + " to " + str(round(energy_max + energy_step, 2)) + " [eV], Current Step: " + str(round(energy_step, 2)) + "\n" + \
+                        "Flux [ph/s]: Plot=" + "{:.1e}".format(self.cumulated_power_plot) + \
+                        ", Incid.=" + "{:.1e}".format(self.cumulated_previous_power_plot) + \
+                        ", Tot.=" + "{:.1e}".format(cumulated_total_power) + \
+                        ", <I>=" + "{:.2e}".format(average_power_density) + " ph/s/mm\u00b2"
+
+            xx = ticket['bin_h_center']
+            yy = ticket['bin_v_center']
+
+            if not isinstance(var_x, str): var_x = self.get_label(var_x)
+            if not isinstance(var_y, str): var_y = self.get_label(var_y)
+
+            self.plot_data2D(histogram, xx, yy, title, var_x, var_y)
+
+    def get_label(self, var):
+        if var == 1:
+            return "X [mm]"
+        elif var == 2:
+            return "Y [mm]"
+        elif var == 3:
+            return "Z [mm]"
+
+    def plot_data2D(self, data2D, dataX, dataY, title="", xtitle="", ytitle=""):
+        if self.plot_canvas is None:
+            self.plot_canvas = Plot2D()
+
+            self.plot_canvas.resetZoom()
+            self.plot_canvas.setXAxisAutoScale(True)
+            self.plot_canvas.setYAxisAutoScale(True)
+            self.plot_canvas.setGraphGrid(False)
+            self.plot_canvas.setKeepDataAspectRatio(False)
+            self.plot_canvas.yAxisInvertedAction.setVisible(False)
+
+            self.plot_canvas.setXAxisLogarithmic(False)
+            self.plot_canvas.setYAxisLogarithmic(False)
+            self.plot_canvas.getMaskAction().setVisible(False)
+            self.plot_canvas.getRoiAction().setVisible(False)
+            self.plot_canvas.getColormapAction().setVisible(True)
+
+        origin = (dataX[0], dataY[0])
+        scale = (dataX[1] - dataX[0], dataY[1] - dataY[0])
+
+        self.plot_canvas.addImage(numpy.array(data2D.T),
+                                  legend="power",
+                                  scale=scale,
+                                  origin=origin,
+                                  colormap={"name": "temperature", "normalization": "linear", "autoscale": True, "vmin": 0, "vmax": 0, "colors": 256},
+                                  replace=True)
+
+        self.plot_canvas.setActiveImage("power")
+
+        self.plot_canvas.setGraphXLabel(xtitle)
+        self.plot_canvas.setGraphYLabel(ytitle)
+        self.plot_canvas.setGraphTitle(title)
+
+        self.plot_canvas.resetZoom()
+        self.plot_canvas.setXAxisAutoScale(True)
+        self.plot_canvas.setYAxisAutoScale(True)
+
+        layout = self.layout()
+        layout.addWidget(self.plot_canvas)
+        self.setLayout(layout)
+
+    def clear(self):
+        if not self.plot_canvas is None:
+            self.plot_canvas.clear()
+            self.cumulated_power_plot = 0.0
+            self.cumulated_previous_power_plot = 0.0
+
+    @classmethod
+    def get_flat_2d(cls, z, x, y):
+        for i in range(len(x)):
+            z[i, :] = 1
+
+        norm = numpy.sum(z)
+        z[:, :] /= norm
+
+    @classmethod
+    def get_gaussian_2d(cls, z, x, y, sigma_x, sigma_y, center_x=0.0, center_y=0.0):
+        for i in range(len(x)):
+            z[i, :] = numpy.exp(-1 * (0.5 * ((x[i] - center_x) / sigma_x) ** 2 + 0.5 * ((y - center_y) / sigma_y) ** 2))
+
+        norm = numpy.sum(z)
+        z[:, :] /= norm
+
+    @classmethod
+    def get_lorentzian_2d(cls, z, x, y, gamma, center_x=0.0, center_y=0.0):
+        for i in range(len(x)):
+            z[i, :] = gamma / (((x[i] - center_x) ** 2 + (y - center_y) ** 2 + gamma ** 2))
+
+        norm = numpy.sum(z)
+        z[:, :] /= norm
+
 class AbstractPowerPlotXY(AutomaticElement):
 
     maintainer = "Luca Rebuffi"
@@ -99,14 +602,15 @@ class AbstractPowerPlotXY(AutomaticElement):
     category = "Display Data Tools"
     keywords = ["data", "file", "load", "read"]
 
-    inputs = [("Input Beam", ShadowBeam, "setBeam")]
+    class Inputs:
+        shadow_data = Input("Shadow Data", ShadowData, default=True, auto_summary=False)
 
     IMAGE_WIDTH = 878
     IMAGE_HEIGHT = 570
 
     want_main_area=1
     plot_canvas=None
-    input_beam=None
+    input_data=None
 
     image_plane=Setting(0)
     image_plane_new_position=Setting(10.0)
@@ -211,7 +715,7 @@ class AbstractPowerPlotXY(AutomaticElement):
     def __init__(self):
         super().__init__(show_automatic_box=False)
 
-        button_box = oasysgui.widgetBox(self.controlArea, "", addSpace=False, orientation="horizontal")
+        button_box = oasysgui.widgetBox(self.controlArea, "", addSpace=False, orientation="horizontal", width=self.CONTROL_AREA_WIDTH-5)
 
         gui.button(button_box, self, "Plot Data", callback=self.plot_cumulated_data, height=45)
         gui.button(button_box, self, "Save Plot", callback=self.save_cumulated_data, height=45)
@@ -229,8 +733,8 @@ class AbstractPowerPlotXY(AutomaticElement):
         screen_box = oasysgui.widgetBox(tab_set, "Screen Position Settings", addSpace=True, orientation="vertical", height=120)
 
         self.image_plane_combo = gui.comboBox(screen_box, self, "image_plane", label="Position of the Image",
-                                            items=["On Image Plane", "Retraced"], labelWidth=260,
-                                            callback=self.set_ImagePlane, sendSelectedValue=False, orientation="horizontal")
+                                              items=["On Image Plane", "Retraced"], labelWidth=260,
+                                              callback=self.set_image_plane, sendSelectedValue=False, orientation="horizontal")
 
         self.image_plane_box = oasysgui.widgetBox(screen_box, "", addSpace=False, orientation="vertical", height=50)
         self.image_plane_box_empty = oasysgui.widgetBox(screen_box, "", addSpace=False, orientation="vertical", height=50)
@@ -240,7 +744,7 @@ class AbstractPowerPlotXY(AutomaticElement):
         gui.comboBox(self.image_plane_box, self, "image_plane_rel_abs_position", label="Position Type", labelWidth=250,
                      items=["Absolute", "Relative"], sendSelectedValue=False, orientation="horizontal")
 
-        self.set_ImagePlane()
+        self.set_image_plane()
 
         general_box = oasysgui.widgetBox(tab_set, "Variables Settings", addSpace=True, orientation="vertical", height=395)
 
@@ -262,9 +766,9 @@ class AbstractPowerPlotXY(AutomaticElement):
                                      sendSelectedValue=False, orientation="horizontal")
 
         gui.comboBox(general_box, self, "x_range", label="X Range", labelWidth=250,
-                                     items=["<Default>",
+                     items=["<Default>",
                                             "Set.."],
-                                     callback=self.set_XRange, sendSelectedValue=False, orientation="horizontal")
+                     callback=self.set_x_range, sendSelectedValue=False, orientation="horizontal")
 
         self.xrange_box = oasysgui.widgetBox(general_box, "", addSpace=True, orientation="vertical", height=70)
         self.xrange_box_empty = oasysgui.widgetBox(general_box, "", addSpace=True, orientation="vertical", height=70)
@@ -272,7 +776,7 @@ class AbstractPowerPlotXY(AutomaticElement):
         oasysgui.lineEdit(self.xrange_box, self, "x_range_min", "X min", labelWidth=220, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(self.xrange_box, self, "x_range_max", "X max", labelWidth=220, valueType=float, orientation="horizontal")
 
-        self.set_XRange()
+        self.set_x_range()
 
         self.y_column = gui.comboBox(general_box, self, "y_column_index", label="Y Column",labelWidth=70,
                                      items=["1: X",
@@ -282,10 +786,10 @@ class AbstractPowerPlotXY(AutomaticElement):
 
                                      sendSelectedValue=False, orientation="horizontal")
 
-        gui.comboBox(general_box, self, "y_range", label="Y Range",labelWidth=250,
-                                     items=["<Default>",
+        gui.comboBox(general_box, self, "y_range", label="Y Range", labelWidth=250,
+                     items=["<Default>",
                                             "Set.."],
-                                     callback=self.set_YRange, sendSelectedValue=False, orientation="horizontal")
+                     callback=self.set_y_range, sendSelectedValue=False, orientation="horizontal")
 
         self.yrange_box = oasysgui.widgetBox(general_box, "", addSpace=True, orientation="vertical", height=70)
         self.yrange_box_empty = oasysgui.widgetBox(general_box, "", addSpace=True, orientation="vertical", height=70)
@@ -293,7 +797,7 @@ class AbstractPowerPlotXY(AutomaticElement):
         oasysgui.lineEdit(self.yrange_box, self, "y_range_min", "Y min", labelWidth=220, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(self.yrange_box, self, "y_range_max", "Y max", labelWidth=220, valueType=float, orientation="horizontal")
 
-        self.set_YRange()
+        self.set_y_range()
 
         ### TAB GEN
 
@@ -393,7 +897,7 @@ class AbstractPowerPlotXY(AutomaticElement):
         gui.button(button_box, self, "Mask", callback=self.mask_plot, height=25)
 
         gui.comboBox(post_box, self, "masking", label="Mask", labelWidth=200,
-                     items=["Level", "Rectangular", "Circular"], sendSelectedValue=False, orientation="horizontal", callback=self.set_Masking)
+                     items=["Level", "Rectangular", "Circular"], sendSelectedValue=False, orientation="horizontal", callback=self.set_masking)
 
         gui.comboBox(post_box, self, "masking_type", label="Mask Type", labelWidth=100,
                      items=["Aperture or < Level", "Obstruction or > Level"], sendSelectedValue=False, orientation="horizontal")
@@ -407,7 +911,7 @@ class AbstractPowerPlotXY(AutomaticElement):
         oasysgui.lineEdit(self.mask_box_2, self, "masking_height", "Mask Height", labelWidth=250,  valueType=float, orientation="horizontal")
         oasysgui.lineEdit(self.mask_box_3, self, "masking_diameter", "Mask Diameter ", labelWidth=250,  valueType=float, orientation="horizontal")
 
-        self.set_Masking()
+        self.set_masking()
 
         post_box = oasysgui.widgetBox(tab_post_smooth, "Smoothing", addSpace=False, orientation="vertical", height=220)
 
@@ -435,7 +939,7 @@ class AbstractPowerPlotXY(AutomaticElement):
                             "Fourier-Ellipsoid",
                             "Fourier-Uniform",
                             "Fill Holes"
-                            ], sendSelectedValue=False, orientation="horizontal", callback=self.set_Filter)
+                            ], sendSelectedValue=False, orientation="horizontal", callback=self.set_filter)
 
         self.post_box_1 = oasysgui.widgetBox(post_box, "", addSpace=False, orientation="vertical", height=110)
         self.post_box_2 = oasysgui.widgetBox(post_box, "", addSpace=False, orientation="vertical", height=110)
@@ -450,19 +954,19 @@ class AbstractPowerPlotXY(AutomaticElement):
 
         self.cb_filter_mode = gui.comboBox(self.post_box_2, self, "filter_mode", label="Mode", labelWidth=200,
                                            items=["reflect", "constant", "nearest", "mirror", "wrap"],
-                                           sendSelectedValue=False, orientation="horizontal", callback=self.set_FilterMode)
+                                           sendSelectedValue=False, orientation="horizontal", callback=self.set_filter_mode)
 
         self.le_filter_cval = oasysgui.lineEdit(self.post_box_2, self, "filter_cval", "Constant Value", labelWidth=250,  valueType=float, orientation="horizontal")
 
         oasysgui.lineEdit(self.post_box_3, self, "filter_spline_order", "Spline Order", labelWidth=250,  valueType=int, orientation="horizontal")
 
-        self.set_Filter()
+        self.set_filter()
 
         post_box = oasysgui.widgetBox(tab_post_fit, "Fit", addSpace=False, orientation="vertical", height=460)
 
         gui.comboBox(post_box, self, "fit_algorithm", label="Fit Algorithm",
                      items=["Gaussian", "Pseudo-Voigt", "Polynomial"], labelWidth=200,
-                     callback=self.set_FitAlgorithm, sendSelectedValue=False, orientation="horizontal")
+                     callback=self.set_fit_algorithm, sendSelectedValue=False, orientation="horizontal")
 
         gui.comboBox(post_box, self, "show_fit_plot", label="Show Fit Plot",
                      items=["No", "Yes"], labelWidth=260,
@@ -478,10 +982,10 @@ class AbstractPowerPlotXY(AutomaticElement):
         gui.checkBox(gauss_c_box, self, "gauss_c_fixed", label="c=0")
 
         le_gauss_A  = oasysgui.lineEdit(self.fit_box_1, self, "gauss_A", "A [W/mm\u00b2]", labelWidth=200,  valueType=float, orientation="horizontal")
-        self.le_gauss_x0 = oasysgui.lineEdit(self.fit_box_1, self, "gauss_x0", "x0 ", labelWidth=200,  valueType=float, orientation="horizontal")
-        self.le_gauss_y0 = oasysgui.lineEdit(self.fit_box_1, self, "gauss_y0", "y0 ", labelWidth=200,  valueType=float, orientation="horizontal")
-        self.le_gauss_fx = oasysgui.lineEdit(self.fit_box_1, self, "gauss_fx", "fx ", labelWidth=200,  valueType=float, orientation="horizontal")
-        self.le_gauss_fy = oasysgui.lineEdit(self.fit_box_1, self, "gauss_fy", "fy ", labelWidth=200,  valueType=float, orientation="horizontal")
+        self.le_gauss_x0 = oasysgui.lineEdit(self.fit_box_1, self, "gauss_x0", "x0 [m] ", labelWidth=200,  valueType=float, orientation="horizontal")
+        self.le_gauss_y0 = oasysgui.lineEdit(self.fit_box_1, self, "gauss_y0", "y0 [m]", labelWidth=200,  valueType=float, orientation="horizontal")
+        self.le_gauss_fx = oasysgui.lineEdit(self.fit_box_1, self, "gauss_fx", "fx [m]", labelWidth=200,  valueType=float, orientation="horizontal")
+        self.le_gauss_fy = oasysgui.lineEdit(self.fit_box_1, self, "gauss_fy", "fy [m]", labelWidth=200,  valueType=float, orientation="horizontal")
         self.le_gauss_chisquare = oasysgui.lineEdit(self.fit_box_1, self, "gauss_chisquare", "\u03c7\u00b2 (RSS/\u03bd)", labelWidth=200,  valueType=float, orientation="horizontal")
 
         le_gauss_c.setReadOnly(True)
@@ -498,10 +1002,10 @@ class AbstractPowerPlotXY(AutomaticElement):
         gui.checkBox(pv_c_box, self, "pv_c_fixed", label="c=0")
 
         le_pv_A  = oasysgui.lineEdit(self.fit_box_2, self, "pv_A", "A [W/mm\u00b2]", labelWidth=200,  valueType=float, orientation="horizontal")
-        self.le_pv_x0 = oasysgui.lineEdit(self.fit_box_2, self, "pv_x0", "x0 ", labelWidth=200,  valueType=float, orientation="horizontal")
-        self.le_pv_y0 = oasysgui.lineEdit(self.fit_box_2, self, "pv_y0", "y0 ", labelWidth=200,  valueType=float, orientation="horizontal")
-        self.le_pv_fx = oasysgui.lineEdit(self.fit_box_2, self, "pv_fx", "fx ", labelWidth=200,  valueType=float, orientation="horizontal")
-        self.le_pv_fy = oasysgui.lineEdit(self.fit_box_2, self, "pv_fy", "fy ", labelWidth=200,  valueType=float, orientation="horizontal")
+        self.le_pv_x0 = oasysgui.lineEdit(self.fit_box_2, self, "pv_x0", "x0 [m]", labelWidth=200,  valueType=float, orientation="horizontal")
+        self.le_pv_y0 = oasysgui.lineEdit(self.fit_box_2, self, "pv_y0", "y0 [m]", labelWidth=200,  valueType=float, orientation="horizontal")
+        self.le_pv_fx = oasysgui.lineEdit(self.fit_box_2, self, "pv_fx", "fx [m]", labelWidth=200,  valueType=float, orientation="horizontal")
+        self.le_pv_fy = oasysgui.lineEdit(self.fit_box_2, self, "pv_fy", "fy [m]", labelWidth=200,  valueType=float, orientation="horizontal")
         le_pv_mx = oasysgui.lineEdit(self.fit_box_2, self, "pv_mx", "mx", labelWidth=200,  valueType=float, orientation="horizontal")
         le_pv_my = oasysgui.lineEdit(self.fit_box_2, self, "pv_my", "my", labelWidth=200,  valueType=float, orientation="horizontal")
         self.le_pv_chisquare = oasysgui.lineEdit(self.fit_box_2, self, "pv_chisquare", "\u03c7\u00b2 (RSS/\u03bd)", labelWidth=200,  valueType=float, orientation="horizontal")
@@ -538,7 +1042,7 @@ class AbstractPowerPlotXY(AutomaticElement):
         palette.setColor(QPalette.ButtonText, QColor('dark blue'))
         button.setPalette(palette)
 
-        self.set_FitAlgorithm()
+        self.set_fit_algorithm()
 
         #######################################################
         # MAIN TAB
@@ -581,75 +1085,58 @@ class AbstractPowerPlotXY(AutomaticElement):
         self.poor_statistics_box_1.setVisible(self.replace_poor_statistic==1)
         self.poor_statistics_box_2.setVisible(self.replace_poor_statistic==0)
 
-    def set_ImagePlane(self):
+    def set_image_plane(self):
         self.image_plane_box.setVisible(self.image_plane==1)
         self.image_plane_box_empty.setVisible(self.image_plane==0)
 
-    def set_XRange(self):
+    def set_x_range(self):
         self.xrange_box.setVisible(self.x_range == 1)
         self.xrange_box_empty.setVisible(self.x_range == 0)
 
-    def set_YRange(self):
+    def set_y_range(self):
         self.yrange_box.setVisible(self.y_range == 1)
         self.yrange_box_empty.setVisible(self.y_range == 0)
 
-    def set_Filter(self):
+    def set_filter(self):
         self.post_box_1.setVisible(3<=self.filter<=5)
         self.post_box_2.setVisible(self.filter==0 or self.filter==2)
         self.post_box_3.setVisible(self.filter==1 )
         self.post_box_4.setVisible(self.filter==6)
 
-        if self.filter==0 or self.filter==2: self.set_FilterMode()
+        if self.filter==0 or self.filter==2: self.set_filter_mode()
 
-    def set_Masking(self):
+    def set_masking(self):
         self.mask_box_1.setVisible(self.masking==0)
         self.mask_box_2.setVisible(self.masking==1)
         self.mask_box_3.setVisible(self.masking==2)
 
-    def set_FilterMode(self):
+    def set_filter_mode(self):
         self.le_filter_cval.setEnabled(self.filter_mode==1)
 
-    def set_FitAlgorithm(self):
+    def set_fit_algorithm(self):
         self.fit_box_1.setVisible(self.fit_algorithm==0)
         self.fit_box_2.setVisible(self.fit_algorithm==1)
         self.fit_box_3.setVisible(self.fit_algorithm==2)
 
-    def after_change_workspace_units(self):
-        label = self.le_gauss_x0.parent().layout().itemAt(0).widget()
-        label.setText(label.text() + " [" + self.workspace_units_label + "]")
-        label = self.le_gauss_y0.parent().layout().itemAt(0).widget()
-        label.setText(label.text() + " [" + self.workspace_units_label + "]")
-        label = self.le_gauss_fx.parent().layout().itemAt(0).widget()
-        label.setText(label.text() + " [" + self.workspace_units_label + "]")
-        label = self.le_gauss_fy.parent().layout().itemAt(0).widget()
-        label.setText(label.text() + " [" + self.workspace_units_label + "]")
-        label = self.le_pv_x0.parent().layout().itemAt(0).widget()
-        label.setText(label.text() + " [" + self.workspace_units_label + "]")
-        label = self.le_pv_y0.parent().layout().itemAt(0).widget()
-        label.setText(label.text() + " [" + self.workspace_units_label + "]")
-        label = self.le_pv_fx.parent().layout().itemAt(0).widget()
-        label.setText(label.text() + " [" + self.workspace_units_label + "]")
-        label = self.le_pv_fy.parent().layout().itemAt(0).widget()
-        label.setText(label.text() + " [" + self.workspace_units_label + "]")
-
     #########################################################
     # I/O
-
-    def setBeam(self, input_beam):
+    
+    @Inputs.shadow_data
+    def set_shadow_data(self, input_data):
         self.cb_rays.setEnabled(True)
 
-        if not input_beam is None:
-            if self._analyze_input_beam(input_beam):
-                if self._can_be_plotted(input_beam):
+        if not input_data is None:
+            if self._analyze_input_data(input_data):
+                if self._can_be_plotted(input_data):
                     self.plot_results()
 
-    def _analyze_input_beam(self, input_beam): raise NotImplementedError()
+    def _analyze_input_data(self, input_data): raise NotImplementedError()
 
-    def _can_be_plotted(self, input_beam):
-        if ShadowCongruence.checkEmptyBeam(input_beam): return ShadowCongruence.checkGoodBeam(input_beam)
+    def _can_be_plotted(self, input_data):
+        if ShadowCongruence.check_empty_data(input_data): return ShadowCongruence.check_good_beam(input_data.beam)
         else: return False
 
-    def writeStdOut(self, text):
+    def _write_std_out(self, text):
         cursor = self.shadow_output.textCursor()
         cursor.movePosition(QTextCursor.End)
         cursor.insertText(text)
@@ -659,7 +1146,7 @@ class AbstractPowerPlotXY(AutomaticElement):
     #########################################################
     # PLOTTING
 
-    def replace_fig(self, shadow_beam, var_x, var_y, xrange, yrange, nbins_h, nbins_v, nolost):
+    def replace_fig(self, shadow_data, var_x, var_y, xrange, yrange, nbins_h, nbins_v, nolost):
         if self.plot_canvas is None:
             self.plot_canvas = PowerPlotXYWidget()
             self.image_box.layout().addWidget(self.plot_canvas)
@@ -678,12 +1165,11 @@ class AbstractPowerPlotXY(AutomaticElement):
                 self.autosave_file.add_attribute("last_power_value", self.total_power, dataset_name="additional_data")
 
             if self.keep_result == 1:
-                self.cumulated_ticket, last_ticket = self.plot_canvas.plot_power_density(shadow_beam, var_x, var_y,
+                self.cumulated_ticket, last_ticket = self.plot_canvas.plot_power_density(shadow_data, var_x, var_y,
                                                                                          self.total_power, self.cumulated_total_power,
                                                                                          self.energy_min, self.energy_max, self.energy_step,
                                                                                          nbins_h=nbins_h, nbins_v=nbins_v, xrange=xrange, yrange=yrange, nolost=nolost,
                                                                                          ticket_to_add=self.cumulated_ticket,
-                                                                                         to_mm=self.workspace_units_to_mm,
                                                                                          show_image=self.view_type==1,
                                                                                          kind_of_calculation=self.kind_of_calculation,
                                                                                          replace_poor_statistic=self.replace_poor_statistic,
@@ -724,11 +1210,10 @@ class AbstractPowerPlotXY(AutomaticElement):
 
                     self.autosave_file.flush()
             else:
-                ticket, _ = self.plot_canvas.plot_power_density(shadow_beam, var_x, var_y,
+                ticket, _ = self.plot_canvas.plot_power_density(shadow_data, var_x, var_y,
                                                                 self.total_power, self.cumulated_total_power,
                                                                 self.energy_min, self.energy_max, self.energy_step,
                                                                 nbins_h=nbins_h, nbins_v=nbins_v, xrange=xrange, yrange=yrange, nolost=nolost,
-                                                                to_mm=self.workspace_units_to_mm,
                                                                 show_image=self.view_type==1,
                                                                 kind_of_calculation=self.kind_of_calculation,
                                                                 replace_poor_statistic=self.replace_poor_statistic,
@@ -756,43 +1241,39 @@ class AbstractPowerPlotXY(AutomaticElement):
                 raise e
 
     def plot_xy(self, var_x, var_y):
-        beam_to_plot = self.input_beam
+        data_to_plot = self.input_data
 
-        if ShadowCongruence.checkGoodBeam(beam_to_plot):
+        if ShadowCongruence.check_good_beam(data_to_plot.beam):
             if self.image_plane == 1:
-                new_shadow_beam = self.input_beam.duplicate(history=False)
+                new_shadow_data = self.input_data.duplicate(copy_beamline=False)
 
                 if self.image_plane_rel_abs_position == 1:  # relative
                     dist = self.image_plane_new_position
                 else:  # absolute
-                    if self.input_beam.historySize() == 0:
-                        historyItem = None
-                    else:
-                        historyItem = self.input_beam.getOEHistory(oe_number=self.input_beam._oe_number)
+                    beamline = self.input_data.beamline
 
-                    if historyItem is None: image_plane = 0.0
-                    elif self.input_beam._oe_number == 0: image_plane = 0.0
-                    else: image_plane = historyItem._shadow_oe_end._oe.T_IMAGE
+                    if beamline is None: image_plane = 0.0
+                    else:                image_plane = beamline.get_beamline_element_at(-1).get_coordinates().q()
 
                     dist = self.image_plane_new_position - image_plane
 
-                new_shadow_beam._beam.retrace(dist)
+                new_shadow_data.beam.retrace(dist)
 
-                beam_to_plot = new_shadow_beam
+                data_to_plot = new_shadow_data
         else:
             # no good rays in the region of interest: creates a 0 power step with 1 good ray
-            beam_to_plot._beam.rays[0, 9] = 1 # convert to good rays
+            data_to_plot.beam.rays[0, 9] = 1 # convert to good rays
 
-            beam_to_plot._beam.rays[:, 6] = 0.0
-            beam_to_plot._beam.rays[:, 7] = 0.0
-            beam_to_plot._beam.rays[:, 8] = 0.0
-            beam_to_plot._beam.rays[:, 15] = 0.0
-            beam_to_plot._beam.rays[:, 16] = 0.0
-            beam_to_plot._beam.rays[:, 17] = 0.0
+            data_to_plot.beam.rays[:, 6] = 0.0
+            data_to_plot.beam.rays[:, 7] = 0.0
+            data_to_plot.beam.rays[:, 8] = 0.0
+            data_to_plot.beam.rays[:, 15] = 0.0
+            data_to_plot.beam.rays[:, 16] = 0.0
+            data_to_plot.beam.rays[:, 17] = 0.0
 
         xrange, yrange = self.get_ranges()
 
-        self.replace_fig(beam_to_plot, var_x, var_y,
+        self.replace_fig(data_to_plot, var_x, var_y,
                          xrange=xrange,
                          yrange=yrange,
                          nbins_h=int(self.number_of_bins),
@@ -815,9 +1296,9 @@ class AbstractPowerPlotXY(AutomaticElement):
 
     def plot_results(self):
         try:
-            sys.stdout = EmittingStream(textWritten=self.writeStdOut)
+            sys.stdout = EmittingStream(textWritten=self._write_std_out)
 
-            if ShadowCongruence.checkEmptyBeam(self.input_beam):
+            if ShadowCongruence.check_empty_data(self.input_data):
                 self.number_of_bins   = congruence.checkStrictlyPositiveNumber(self.number_of_bins, "Number of Bins")
                 self.number_of_bins_v = congruence.checkStrictlyPositiveNumber(self.number_of_bins_v, "Number of Bins V")
                 self._check_other_fields()
@@ -835,20 +1316,18 @@ class AbstractPowerPlotXY(AutomaticElement):
     def _check_other_fields(self): pass
 
     def get_ranges(self):
-        xrange = None
-        yrange = None
-        factor1 = self.workspace_units_to_mm
-        factor2 = self.workspace_units_to_mm
+        xrange  = None
+        yrange  = None
 
         if self.x_range == 1:
             congruence.checkLessThan(self.x_range_min, self.x_range_max, "X range min", "X range max")
 
-            xrange = [self.x_range_min / factor1, self.x_range_max / factor1]
+            xrange = [self.x_range_min / TO_MM, self.x_range_max / TO_MM]
 
         if self.y_range == 1:
             congruence.checkLessThan(self.y_range_min, self.y_range_max, "Y range min", "Y range max")
 
-            yrange = [self.y_range_min / factor2, self.y_range_max / factor2]
+            yrange = [self.y_range_min / TO_MM, self.y_range_max / TO_MM]
 
         return xrange, yrange
 
@@ -1752,7 +2231,7 @@ def polynomial(coefficients):
     return lambda x, y: polyval2d(x, y, coefficients)
 
 
-from oasys.util.oasys_util import get_sigma, get_average
+from srxraylib.util.histograms import get_sigma, get_average
 
 
 # Returns (x, y, width_x, width_y) the gaussian parameters of a 2D distribution by calculating its moments
@@ -1904,7 +2383,7 @@ def get_fitted_data_poly(xx, yy, pd, degree=4, guess_params=None):
     return fit(*numpy.meshgrid(xx, yy)), params
 
 
-formulas_path = os.path.join(resources.package_dirname("orangecontrib.shadow_advanced_tools.widgets.thermal"), "misc", "fit_formulas.png")
+formulas_path = os.path.join(resources.package_dirname("orangecontrib.shadow4_advanced.widgets.tools"), "misc", "fit_formulas.png")
 
 
 class ShowFitFormulasDialog(QDialog):
@@ -1932,9 +2411,9 @@ from matplotlib.figure import Figure
 
 from matplotlib import gridspec
 
-gauss_formula_path = os.path.join(resources.package_dirname("orangecontrib.shadow_advanced_tools.widgets.thermal"), "misc", "gauss_formula.png")
-pv_formula_path = os.path.join(resources.package_dirname("orangecontrib.shadow_advanced_tools.widgets.thermal"), "misc", "pv_formula.png")
-poly_formula_path = os.path.join(resources.package_dirname("orangecontrib.shadow_advanced_tools.widgets.thermal"), "misc", "poly_formula.png")
+gauss_formula_path = os.path.join(resources.package_dirname("orangecontrib.shadow4_advanced.widgets.tools"), "misc", "gauss_formula.png")
+pv_formula_path    = os.path.join(resources.package_dirname("orangecontrib.shadow4_advanced.widgets.tools"), "misc", "pv_formula.png")
+poly_formula_path  = os.path.join(resources.package_dirname("orangecontrib.shadow4_advanced.widgets.tools"), "misc", "poly_formula.png")
 
 
 class ShowFitResultDialog(QDialog):
