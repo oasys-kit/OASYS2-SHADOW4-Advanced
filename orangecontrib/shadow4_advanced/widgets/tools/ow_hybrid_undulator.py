@@ -514,6 +514,21 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
 
         gui.rubber(self.mainArea)
 
+
+    ###################################################################################
+    # Listener from HybridCalculator
+    ###################################################################################
+
+    def receive_message(self, message: str, data: dict):
+        if not message is None:
+            print(message)
+            self.setStatusMessage(message)
+
+        progress = data.get("progress", None)
+        if not progress is None:
+            print(f"Progress: {progress}%")
+            self.progressBarSet(progress)
+
     ###################################################################################
     # Utils from HybridCalculator
     ###################################################################################
@@ -1028,7 +1043,9 @@ class HybridUndulator(OWSynchrotronSource, HybridUndulatorListener):
                 integrated_flux                                             = self.integrated_flux,
                 power_density                                               = self.power_density)
 
-            light_source = S4HybridUndulatorLightSource(name="Shadow4/SRW Undulator Source", hybrid_input_parameters=hybrid_input_parameters)
+            light_source = S4HybridUndulatorLightSource(name="Shadow4/SRW Undulator Source",
+                                                        hybrid_input_parameters=hybrid_input_parameters,
+                                                        calculation_listener=self)
 
             # script
             script = light_source.to_python_code()

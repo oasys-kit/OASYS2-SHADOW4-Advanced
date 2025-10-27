@@ -47,25 +47,36 @@
 
 import sys, numpy, os
 
-from PyQt5 import QtGui
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QMessageBox, QLabel, QSizePolicy
-from PyQt5.QtGui import QPixmap
+from AnyQt.QtCore import Qt
+from AnyQt.QtWidgets import QMessageBox, QLabel, QSizePolicy
+from AnyQt.QtGui import QPixmap
+from matplotlib.backend_bases import button_press_handler
 
 from matplotlib.patches import FancyArrowPatch, ArrowStyle
 
 import orangecanvas.resources as resources
 
 from orangewidget import gui
-from orangewidget.widget import OWAction
+from orangewidget.widget import Input, Output
 from orangewidget.settings import Setting
 
-from oasys.widgets.exchange import DataExchangeObject
-from oasys.widgets import gui as oasysgui
-from oasys.util.oasys_util import get_fwhm
-from orangecontrib.shadow.util.shadow_objects import ShadowBeam
-from orangecontrib.shadow.util.shadow_util import ShadowCongruence
-from orangecontrib.shadow.widgets.gui.ow_automatic_element import AutomaticElement
+from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
+from oasys2.widget.widget import OWAction
+from oasys2.widget import gui as oasysgui
+from oasys2.widget.util.exchange import DataExchangeObject
+
+from srxraylib.util.histograms import get_fwhm
+
+from shadow4.beam.s4_beam import S4Beam
+
+try:
+    from orangecontrib.shadow4.util.shadow4_objects import ShadowData
+    from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, ShadowPlot
+    from orangecontrib.shadow4.widgets.gui.ow_automatic_element import AutomaticElement
+except ImportError:
+    pass
+
+TO_MM = 1e3
 
 class FluxCalculator(AutomaticElement):
 
@@ -78,18 +89,17 @@ class FluxCalculator(AutomaticElement):
     category = "User Defined"
     keywords = ["data", "file", "load", "read"]
 
-    inputs = [("Shadow Beam", ShadowBeam, "setBeam"),
-              ("Spectrum Data", DataExchangeObject, "setSpectrumData")]
+    class Inputs:
+        shadow_data = Input("Shadow Data", ShadowData, default=True, auto_summary=False)
+        energy_spectrum = Input("Energy Spectrum", DataExchangeObject, default=True, auto_summary=False)
 
-    outputs = [{"name":"Beam",
-                "type":ShadowBeam,
-                "doc":"Shadow Beam",
-                "id":"beam"}]
+    class Outputs:
+        shadow_data = Output("Shadow Data", ShadowData, default=True, auto_summary=False)
 
     want_main_area = 0
     want_control_area = 1
 
-    input_beam     = None
+    input_data     = None
     input_spectrum = None
     flux_index = -1
 
@@ -99,7 +109,7 @@ class FluxCalculator(AutomaticElement):
     e_max = Setting(0.0)
     n_bins = Setting(200)
 
-    usage_path = os.path.join(resources.package_dirname("orangecontrib.shadow_advanced_tools.widgets.thermal"), "misc", "flux_calculator.png")
+    usage_path = os.path.join(resources.package_dirname("orangecontrib.shadow4_advanced.widgets.tools"), "misc", "flux_calculator.png")
 
     def __init__(self):
         super(FluxCalculator, self).__init__()
@@ -111,8 +121,8 @@ class FluxCalculator(AutomaticElement):
         self.setMaximumWidth(self.CONTROL_AREA_WIDTH+10)
         self.setMaximumHeight(660)
 
-        box0 = gui.widgetBox(self.controlArea, "", orientation="horizontal")
-        gui.button(box0, self, "Calculate Flux", callback=self.calculate_flux, height=45)
+        button_box = oasysgui.widgetBox(self.controlArea, "", orientation="horizontal", width=self.CONTROL_AREA_WIDTH-5)
+        gui.button(button_box, self, "Calculate Flux", callback=self.calculate_flux, height=45)
 
         tabs_setting = oasysgui.tabWidget(self.controlArea)
         tabs_setting.setFixedHeight(510)
@@ -157,7 +167,7 @@ class FluxCalculator(AutomaticElement):
         self.histo_energy._outputToolBar.setVisible(False)
         self.histo_energy.group.setVisible(False)
         self.histo_energy._colorbar.setVisible(False)
-        self.histo_energy.setActiveCurveColor(color='blue')
+        self.histo_energy.setActiveCurveStyle(color='blue')
         self.histo_energy.setMinimumWidth(380)
 
         tab_ban.layout().addWidget(self.histo_energy)
@@ -183,11 +193,12 @@ class FluxCalculator(AutomaticElement):
         self.bandwidth_box_1.setVisible(self.bandwidth_calculation==1)
         self.bandwidth_box_2.setVisible(self.bandwidth_calculation==0)
 
-    def setBeam(self, beam):
+    @Inputs.shadow_data
+    def set_shadow_data(self, shadow_data):
         try:
-            if ShadowCongruence.checkEmptyBeam(beam):
-                if ShadowCongruence.checkGoodBeam(beam):
-                    self.input_beam = beam
+            if ShadowCongruence.check_empty_data(shadow_data):
+                if ShadowCongruence.check_good_beam(shadow_data.beam):
+                    self.input_data = shadow_data
 
                     if self.is_automatic_run: self.calculate_flux()
         except Exception as exception:
@@ -195,7 +206,8 @@ class FluxCalculator(AutomaticElement):
 
             if self.IS_DEVELOP: raise exception
 
-    def setSpectrumData(self, data):
+    @Inputs.energy_spectrum
+    def set_energy_spectrum(self, data):
         if not data is None:
             try:
                 if data.get_program_name() == "XOPPY":
@@ -224,7 +236,7 @@ class FluxCalculator(AutomaticElement):
                 if self.IS_DEVELOP: raise exception
 
     def calculate_flux(self):
-        if not self.input_beam is None and not self.input_spectrum is None:
+        if not self.input_data is None and not self.input_spectrum is None:
             try:
                 if self.bandwidth_calculation==1:
                     if self.e_min >= self.e_max: raise ValueError("Energy min should be < Energy max")
@@ -236,17 +248,19 @@ class FluxCalculator(AutomaticElement):
                     erange = None
                     nbins  = 200
 
-                self.plot_histo(shadow_beam=self.input_beam, erange=erange, nbins=nbins)
-                flux_factor, resolving_power, energy, ttext = calculate_flux_factor_and_resolving_power(shadow_beam=self.input_beam, erange=erange, nbins=nbins)
+                shadow_beam = self.input_data.beam
+
+                self.plot_histo(shadow_beam=shadow_beam, erange=erange, nbins=nbins)
+                flux_factor, resolving_power, energy, ttext = calculate_flux_factor_and_resolving_power(shadow_beam=shadow_beam, erange=erange, nbins=nbins)
 
                 total_text = ttext
 
                 flux_at_sample, ttext = calculate_flux_at_sample(self.input_spectrum, self.flux_index, flux_factor, energy)
 
-                ticket = self.input_beam._beam.histo2(1, 3, nbins=100, nolost=1, ref=23)
+                ticket = shadow_beam.histo2(1, 3, nbins=100, nolost=1, ref=23)
 
-                dx = ticket['fwhm_v'] * self.workspace_units_to_m*1000
-                dy = ticket['fwhm_h'] * self.workspace_units_to_m*1000
+                dx = ticket['fwhm_v'] * TO_MM
+                dy = ticket['fwhm_h'] * TO_MM
 
                 total_text += "\n" + ttext
 
@@ -257,7 +271,7 @@ class FluxCalculator(AutomaticElement):
                 self.text.clear()
                 self.text.setText(total_text)
 
-                self.send("Beam", self.input_beam)
+                self.Outputs.shadow_data.send(self.input_data)
             except Exception as exception:
                 QMessageBox.critical(self, "Error", str(exception), QMessageBox.Ok)
 
@@ -266,7 +280,7 @@ class FluxCalculator(AutomaticElement):
     def plot_histo(self, shadow_beam, erange=None, nbins=200):
         self.histo_energy.clear()
 
-        ticket = shadow_beam._beam.histo1(11, nbins=nbins, xrange=erange, nolost=1, ref=23)
+        ticket = shadow_beam.histo1(26, nbins=nbins, xrange=erange, nolost=1, ref=23)
 
         ticket['fwhm'], ticket['fwhm_quote'], ticket['fwhm_coordinates'] = get_fwhm(ticket['histogram'], ticket['bin_center'])
 
@@ -281,7 +295,7 @@ class FluxCalculator(AutomaticElement):
         self.histo_energy.setInteractiveMode(mode='zoom')
 
         n_patches = len(self.histo_energy._backend.ax.patches)
-        if (n_patches > 0): self.histo_energy._backend.ax.patches.remove(self.histo_energy._backend.ax.patches[n_patches-1])
+        if (n_patches > 0): self.histo_energy._backend.ax.patches[n_patches - 1].remove()
 
         if not ticket['fwhm'] == 0.0:
             x_fwhm_i, x_fwhm_f = ticket['fwhm_coordinates']
@@ -301,7 +315,7 @@ class FluxCalculator(AutomaticElement):
 
 
 def calculate_flux_factor_and_resolving_power(shadow_beam, nbins=200, erange=None):
-    ticket = shadow_beam._beam.histo1(11, nbins=nbins, xrange=None, nolost=1)
+    ticket = shadow_beam.histo1(26, nbins=nbins, xrange=None, nolost=1)
 
     energy_min = ticket['xrange'][0]
     energy_max = ticket['xrange'][-1]
@@ -312,15 +326,14 @@ def calculate_flux_factor_and_resolving_power(shadow_beam, nbins=200, erange=Non
     if Denergy_source == 0.0:
         raise ValueError("This calculation is not possibile for a single energy value")
 
-    ticket = shadow_beam._beam.histo1(11, nbins=nbins, nolost=1, xrange=erange, ref=23)
+    ticket = shadow_beam.histo1(26, nbins=nbins, nolost=1, xrange=erange, ref=23)
 
-    initial_intensity = len(shadow_beam._beam.rays)
-    final_intensity = ticket['intensity']
+    initial_intensity = shadow_beam.get_number_of_rays()
+    final_intensity   = ticket['intensity']
     efficiency = final_intensity/initial_intensity
-    bandwidth = ticket['fwhm']
+    bandwidth  = ticket['fwhm']
 
-    if bandwidth == 0.0 or bandwidth is None:
-        raise ValueError("Bandwidth is 0.0 or None: calculation not possible")
+    if bandwidth == 0.0 or bandwidth is None: raise ValueError("Bandwidth is 0.0 or None: calculation not possible")
 
     resolving_power = energy/bandwidth
 
@@ -359,11 +372,6 @@ def calculate_flux_at_sample(spectrum, flux_index, flux_factor, energy):
     return interpolated_flux*flux_factor, text
 
 
-if __name__ == "__main__":
-    a = QtGui.QApplication(sys.argv)
-    ow = FluxCalculator()
-    ow.show()
-    a.exec_()
-    ow.saveSettings()
+add_widget_parameters_to_module(__name__)
 
 

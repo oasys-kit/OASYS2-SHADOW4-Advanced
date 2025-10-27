@@ -46,18 +46,23 @@
 # #########################################################################
 
 
+from orangewidget.settings import Setting
+from orangewidget.widget import Input
+
+from oasys2.widget import gui as oasysgui
+from oasys2.widget.util import congruence
+from oasys2.widget.util.exchange import DataExchangeObject
+
+from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
+
+try:
+    from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, ShadowPlot
+except ImportError:
+    pass
+
 import scipy.constants as codata
 
-from orangewidget.settings import Setting
-from oasys.widgets import gui as oasysgui
-from oasys.widgets import congruence
-from oasys.widgets.exchange import DataExchangeObject
-
-from orangecontrib.shadow.util.shadow_objects import ShadowBeam
-from orangecontrib.shadow.util.shadow_util import ShadowCongruence
-from orangecontrib.shadow_advanced_tools.util.gui import PowerPlotXYWidget
-
-from orangecontrib.shadow_advanced_tools.widgets.thermal.gui.power_plot_xy import AbstractPowerPlotXY
+from orangecontrib.shadow4_advanced.widgets.gui.power_plot_xy import AbstractPowerPlotXY, PowerPlotXYWidget
 
 class PowerPlotXYBM(AbstractPowerPlotXY):
 
@@ -66,9 +71,9 @@ class PowerPlotXYBM(AbstractPowerPlotXY):
     icon = "icons/bm_plot_xy_power.png"
     priority = 7.1
 
-    inputs = [("Input Beam", ShadowBeam, "setBeam"),
-              ("Input Spectrum", DataExchangeObject, "setFlux")]
-
+    class Inputs:
+        shadow_data = AbstractPowerPlotXY.Inputs.shadow_data
+        energy_spectrum = Input("Energy Spectrum", DataExchangeObject, default=True, auto_summary=False)
 
     nbins_interpolation = Setting(500)
 
@@ -84,9 +89,11 @@ class PowerPlotXYBM(AbstractPowerPlotXY):
         oasysgui.lineEdit(interpolation_box, self, "nbins_interpolation", "Number of Bins for energy interpolation", labelWidth=250, valueType=int, orientation="horizontal")
 
     def plot_cumulated_data(self):
-        if not self.input_beam is None: self.plot_results()
+        if not self.input_data is None: self.plot_results()
 
     def replace_fig(self, shadow_beam, var_x, var_y, xrange, yrange, nbins_h, nbins_v, nolost):
+        if self.initial_flux is None: raise ValueError("Energy Spectrum is not set")
+
         if self.plot_canvas is None:
             self.plot_canvas = PowerPlotXYWidget()
             self.image_box.layout().addWidget(self.plot_canvas)
@@ -113,11 +120,15 @@ class PowerPlotXYBM(AbstractPowerPlotXY):
     #########################################################
     # I/O
 
-    def _analyze_input_beam(self, input_beam):
-        self.input_beam = input_beam.duplicate()
+    @Inputs.shadow_data
+    def set_shadow_data(self, input_data):
+        super(PowerPlotXYBM, self).set_shadow_data(input_data)
 
-        if self.input_beam.scanned_variable_data and self.input_beam.scanned_variable_data.has_additional_parameter("is_footprint"):
-            if self.input_beam.scanned_variable_data.get_additional_parameter("is_footprint"):
+    def _analyze_input_data(self, input_data):
+        self.input_data = input_data.duplicate()
+
+        if self.input_data.scanning_data and self.input_data.scanning_data.has_additional_parameter("is_footprint"): # from footprint reader
+            if self.input_data.scanning_data.get_additional_parameter("is_footprint"):
                 self.cb_rays.setEnabled(False)
                 self.rays = 0  # transmitted, absorbed doesn't make sense since is precalculated by footprint object
             else:
@@ -125,11 +136,14 @@ class PowerPlotXYBM(AbstractPowerPlotXY):
 
         return True
 
-    def _can_be_plotted(self, input_beam):
-        if super(PowerPlotXYBM, self)._can_be_plotted(input_beam): return not self.initial_flux is None
+    def _can_be_plotted(self, input_data):
+        if super(PowerPlotXYBM, self)._can_be_plotted(input_data): return not self.initial_flux is None
         else: return False
 
-    def setFlux(self, exchange_data):
+
+
+    @Inputs.energy_spectrum
+    def set_flux(self, exchange_data):
         if not exchange_data is None:
             if exchange_data.get_program_name() == "XOPPY" and exchange_data.get_widget_name() == "BM":
                     if exchange_data.get_content("is_log_plot") == 1:
@@ -153,11 +167,13 @@ class PowerPlotXYBM(AbstractPowerPlotXY):
 
             print("Total Initial Power from XOPPY", self.total_initial_power)
 
-            if not self.input_beam is None:
-                if ShadowCongruence.checkEmptyBeam(self.input_beam):
-                    if ShadowCongruence.checkGoodBeam(self.input_beam):
+            if not self.input_data is None:
+                if ShadowCongruence.check_empty_data(self.input_data):
+                    if ShadowCongruence.check_good_beam(self.input_data.beam):
                         self.plot_results()
 
         else:
             self.initial_flux = None
             self.initial_energy = None
+
+add_widget_parameters_to_module(__name__)

@@ -164,6 +164,14 @@ class PowerLoopPoint(OWWidget):
         self.runaction.triggered.connect(self.restart_loop)
         self.addAction(self.runaction)
 
+        self.runaction = OWAction("Reload Spectrum and Filters", self)
+        self.runaction.triggered.connect(self.read_spectrum_and_filters_file)
+        self.addAction(self.runaction)
+
+        self.runaction = OWAction("Reload Spectrum Only", self)
+        self.runaction.triggered.connect(self.read_spectrum_file_only)
+        self.addAction(self.runaction)
+
         self.setFixedWidth(1200)
         self.setFixedHeight(730)
 

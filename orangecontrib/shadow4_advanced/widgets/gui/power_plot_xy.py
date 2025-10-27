@@ -70,7 +70,6 @@ from orangewidget.widget import Input
 from oasys2.widget import gui as oasysgui
 from oasys2.widget.util import congruence
 from oasys2.widget.util.widget_util import EmittingStream
-from orangewidget.workflow.config import data_dir
 
 from shadow4.beam.s4_beam import S4Beam
 
@@ -159,12 +158,9 @@ class PowerPlotXYWidget(QWidget):
                                                show_image)
             return ticket
         
-        from shadow4.beamline.s4_beamline import S4Beamline
-        from shadow4.beamline.s4_beamline_element import S4BeamlineElement
-        
-        beamline: S4Beamline = shadow_data.beamline
-        first_oe: S4BeamlineElement = beamline.get_beamline_element_at(0)
-        last_oe: S4BeamlineElement = beamline.get_beamline_element_at(-1)
+        beamline = shadow_data.beamline
+        first_oe = beamline.get_beamline_element_at(0)
+        last_oe  = beamline.get_beamline_element_at(-1)
         
         source_beam = first_oe.get_input_beam()
 
@@ -174,7 +170,7 @@ class PowerPlotXYWidget(QWidget):
         rays_energy  = ShadowPhysics.getEnergyFromShadowK(shadow_data.beam.rays[:, 10])
         energy_range = [numpy.min(rays_energy), numpy.max(rays_energy)]
 
-        ticket_initial = source_beam.histo1(11, xrange=energy_range, nbins=nbins_interpolation, nolost=1, ref=23)
+        ticket_initial = source_beam.histo1(26, xrange=energy_range, nbins=nbins_interpolation, nolost=1, ref=23)
 
         energy_bins = ticket_initial["bin_center"]
 
@@ -255,8 +251,8 @@ class PowerPlotXYWidget(QWidget):
                                                show_image)
             return ticket
 
-        ticket_incident = previous_beam.histo1(11, xrange=energy_range, nbins=nbins_interpolation, nolost=1, ref=23)  # intensity of good rays per bin incident
-        ticket_final    = beam.histo1(11, xrange=energy_range, nbins=nbins_interpolation, nolost=1, ref=23)  # intensity of good rays per bin
+        ticket_incident = previous_beam.histo1(26, xrange=energy_range, nbins=nbins_interpolation, nolost=1, ref=23)  # intensity of good rays per bin incident
+        ticket_final    = beam.histo1(26, xrange=energy_range, nbins=nbins_interpolation, nolost=1, ref=23)  # intensity of good rays per bin
 
         good = numpy.where(ticket_initial["histogram"] > 0)
 
@@ -278,7 +274,7 @@ class PowerPlotXYWidget(QWidget):
 
         # CALCULATE POWER DENSITY PER EACH RAY -------------------------------------------------------
 
-        ticket = beam.histo1(11, xrange=energy_range, nbins=nbins_interpolation, nolost=1, ref=0)  # number of rays per bin
+        ticket = beam.histo1(26, xrange=energy_range, nbins=nbins_interpolation, nolost=1, ref=0)  # number of rays per bin
         good   = numpy.where(ticket["histogram"] > 0)
 
         final_power_per_ray = numpy.zeros(len(final_power_shadow))
