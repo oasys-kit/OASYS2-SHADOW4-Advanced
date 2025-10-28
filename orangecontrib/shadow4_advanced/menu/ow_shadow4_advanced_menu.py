@@ -52,18 +52,18 @@ from orangecontrib.shadow4_advanced.widgets.tools.ow_power_plot_xy import PowerP
 
 class ShadowAdvancedToolsMenu(OMenu):
     def __init__(self):
-        super().__init__(name="Shadow Advanced Tools")
+        super().__init__(name="Shadow4-Advanced")
 
         self.openContainer()
-        self.addContainer("Cumulative Plotting")
-        self.addSubMenu("Enable all the Power Plot XY widgets")
-        self.addSubMenu("Disable all the Power Plot XY widgets")
+        self.addContainer("Thermal Load Loops")
+        self.addSubMenu("Enable all the Power Density widgets")
+        self.addSubMenu("Disable all the Power Density widgets")
         self.addSeparator()
-        self.addSubMenu("Select Plotting \"Yes\" in all the Power Plot XY widgets")
-        self.addSubMenu("Select Plotting \"No\" in all the Power Plot XY widgets")
+        self.addSubMenu("Select Plotting \"Yes\" in all the Power Density widgets")
+        self.addSubMenu("Select Plotting \"No\" in all the Power Density widgets")
         self.addSeparator()
-        self.addSubMenu("Clear all the cumulated plots in Power Plot XY widgets")
-        self.addSubMenu("Reload all the cumulated plots in Power Plot XY widgets (from work. dir.)")
+        self.addSubMenu("Clear all the cumulated plots in Power Density widgets")
+        self.addSubMenu("Reload all the cumulated plots in Power Density widgets (from work. dir.)")
         self.closeContainer()
 
     def executeAction_1(self, action):
