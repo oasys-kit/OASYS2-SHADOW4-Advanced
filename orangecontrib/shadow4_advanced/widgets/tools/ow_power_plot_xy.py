@@ -64,7 +64,7 @@ import scipy.constants as codata
 from orangecontrib.shadow4_advanced.widgets.gui.power_plot_xy import AbstractPowerPlotXY, PowerPlotXYWidget
 
 class PowerPlotXY(AbstractPowerPlotXY):
-    name = "Power Plot XY - Undulator"
+    name = "Power Density - Undulator"
     description = "Display Data Tools: Power Plot XY - Undulator"
     icon = "icons/plot_xy_power.png"
     priority = 6.3

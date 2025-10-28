@@ -90,8 +90,8 @@ class EnergyBinning(object):
 
 class PowerLoopPoint(OWWidget):
 
-    name = "Power Density Loop Point"
-    description = "Tools: LoopPoint"
+    name = "Thermal Load Loop Point"
+    description = "Tools: Thermal Loop Point"
     icon = "icons/cycle_power.png"
     maintainer = "Luca Rebuffi"
     maintainer_email = "lrebuffi(@at@)anl.gov"
@@ -156,21 +156,25 @@ class PowerLoopPoint(OWWidget):
         self.runaction.triggered.connect(self.stop_loop)
         self.addAction(self.runaction)
 
-        self.runaction = OWAction("Suspend", self)
-        self.runaction.triggered.connect(self.suspend_loop)
-        self.addAction(self.runaction)
+        runaction = OWAction("Suspend", self)
+        runaction.triggered.connect(self.suspend_loop)
+        self.addAction(runaction)
 
-        self.runaction = OWAction("Restart", self)
-        self.runaction.triggered.connect(self.restart_loop)
-        self.addAction(self.runaction)
+        runaction = OWAction("Restart", self)
+        runaction.triggered.connect(self.restart_loop)
+        self.addAction(runaction)
 
-        self.runaction = OWAction("Reload Spectrum and Filters", self)
-        self.runaction.triggered.connect(self.read_spectrum_and_filters_file)
-        self.addAction(self.runaction)
+        runaction = OWAction(None, self)
+        runaction.setSeparator(True)
+        self.addAction(runaction)
 
-        self.runaction = OWAction("Reload Spectrum Only", self)
-        self.runaction.triggered.connect(self.read_spectrum_file_only)
-        self.addAction(self.runaction)
+        runaction = OWAction("Reload Spectrum and Filters", self)
+        runaction.triggered.connect(self.read_spectrum_and_filters_file)
+        self.addAction(runaction)
+
+        runaction = OWAction("Reload Spectrum Only", self)
+        runaction.triggered.connect(self.read_spectrum_file_only)
+        self.addAction(runaction)
 
         self.setFixedWidth(1200)
         self.setFixedHeight(730)
@@ -198,41 +202,8 @@ class PowerLoopPoint(OWWidget):
 
         tabs = oasysgui.tabWidget(self.controlArea)
         
-        tab_loop     = oasysgui.createTabPage(tabs, "Loop Management")
-        tab_load     = oasysgui.createTabPage(tabs, "Settings")
-        tab_recovery = oasysgui.createTabPage(tabs, "Crash Recovery")
-
-        left_box_2 = oasysgui.widgetBox(tab_recovery, "Crash Recovery", addSpace=False, orientation="vertical", width=385, height=560)
-
-        oasysgui.lineEdit(left_box_2, self, "recovery_last_energy_step", "Last Energy Step #", labelWidth=260, valueType=int, orientation="horizontal")
-
-        load_box = oasysgui.widgetBox(left_box_2, "", addSpace=False, orientation="horizontal", height=30)
-        self.le_recovery_file_name = oasysgui.lineEdit(load_box, self, "recovery_file_name", "Extract from File", labelWidth=110, valueType=str, orientation="horizontal")
-        gui.button(load_box, self, "...", callback=self.select_recovery_file, width=25)
-
-        gui.button(left_box_2, self, "Restart from Crash", callback=self.restart_loop_from_crash)
-
-        left_box_2 = oasysgui.widgetBox(tab_load, "Input Files Management", addSpace=False, orientation="vertical", width=385, height=560)
-
-        gui.comboBox(left_box_2, self, "load_file_mode", label="Input Files Mode",
-                     items=["Manual", "Automatic"], labelWidth=150,
-                     callback=self.set_load_file_mode, sendSelectedValue=False, orientation="horizontal")
-
-        self.load_file_mode_box_1 = oasysgui.widgetBox(left_box_2, "", addSpace=False, orientation="vertical", height=100)
-        self.load_file_mode_box_2 = oasysgui.widgetBox(left_box_2, "", addSpace=False, orientation="vertical", height=100)
-
-        gui.separator(self.load_file_mode_box_2)
-        oasysgui.lineEdit(self.load_file_mode_box_1, self, "skip_rows", "Skip Rows", labelWidth=260, valueType=int, orientation="horizontal")
-
-        load_box = oasysgui.widgetBox(self.load_file_mode_box_1, "", addSpace=False, orientation="horizontal", height=30)
-        self.le_autobinning_file_name = oasysgui.lineEdit(load_box, self, "autobinning_file_name", "Energy Spectrum", labelWidth=110, valueType=str, orientation="horizontal")
-        gui.button(load_box, self, "...", callback=self.select_autobinning_file, width=25)
-
-        load_box = oasysgui.widgetBox(self.load_file_mode_box_1, "", addSpace=False, orientation="horizontal", height=30)
-        self.le_filters_file_name = oasysgui.lineEdit(load_box, self, "filters_file_name", "Filters File", labelWidth=110, valueType=str, orientation="horizontal")
-        gui.button(load_box, self, "...", callback=self.select_filters_file, width=25)
-
-        self.set_load_file_mode()
+        tab_loop     = oasysgui.createTabPage(tabs, "Loop")
+        tab_recovery = oasysgui.createTabPage(tabs, "Advanced")
 
         left_box_1 = oasysgui.widgetBox(tab_loop, "", addSpace=False, orientation="vertical", width=385, height=560)
 
@@ -244,14 +215,17 @@ class PowerLoopPoint(OWWidget):
                      items=["Manual", "Automatic (Constant Power)", "Automatic (Constant Energy)"], labelWidth=150,
                      callback=self.set_autobinning, sendSelectedValue=False, orientation="horizontal")
 
-        self.autobinning_box_1 = oasysgui.widgetBox(left_box_1, "", addSpace=False, orientation="vertical", height=50)
-        self.autobinning_box_2 = oasysgui.widgetBox(left_box_1, "", addSpace=False, orientation="vertical", height=140)
+        self.autobinning_box_1 = oasysgui.widgetBox(left_box_1, "", addSpace=False, orientation="vertical", height=60)
+        self.autobinning_box_2 = oasysgui.widgetBox(left_box_1, "", addSpace=False, orientation="vertical", height=155)
 
-        # ----------------------------------------------
+        gui.separator(self.autobinning_box_1)
 
-        gui.button(self.autobinning_box_1, self, "Compute Bins", callback=self.calculate_energy_binnings)
+        gui.button(self.autobinning_box_1, self, "Compute Bins", callback=self.calculate_energy_binnings, height=35)
 
-        oasysgui.widgetLabel(self.autobinning_box_1, "Energy From, Energy To, Energy Step [eV]")
+        gui.separator(self.autobinning_box_1)
+
+        header = oasysgui.widgetLabel(self.autobinning_box_1, "Energy From, Energy To, Energy Step [eV]")
+        header.setStyleSheet("font-size: 10pt")
 
         # ----------------------------------------------
 
@@ -259,16 +233,21 @@ class PowerLoopPoint(OWWidget):
         oasysgui.lineEdit(self.autobinning_box_2, self, "auto_perc_total_power", "% Total Power", labelWidth=250, valueType=float, orientation="horizontal")
         gui.comboBox(self.autobinning_box_2, self, "send_power_step", label="Send Power Step", items=["No", "Yes"], labelWidth=350, sendSelectedValue=False, orientation="horizontal")
 
+        gui.separator(self.autobinning_box_2)
+
         button_box = oasysgui.widgetBox(self.autobinning_box_2, "", addSpace=False, orientation="horizontal")
 
-        gui.button(button_box, self, "Reload Spectrum and Filters", callback=self.read_spectrum_and_filters_file)
-        gui.button(button_box, self, "Reload Spectrum Only", callback=self.read_spectrum_file_only)
+        gui.button(button_box, self, "Reload Spectrum and Filters", callback=self.read_spectrum_and_filters_file, height=35)
+        gui.button(button_box, self, "Reload Spectrum Only",        callback=self.read_spectrum_file_only, height=35)
 
-        oasysgui.widgetLabel(self.autobinning_box_2, "Energy Value [eV], Energy Step [eV], Power Step [W]")
+        gui.separator(self.autobinning_box_2)
+
+        header = oasysgui.widgetLabel(self.autobinning_box_2, "Energy Value [eV], Energy Step [eV], Power Step [W]")
+        header.setStyleSheet("font-size: 10pt")
 
         def write_text(): self.energies = self.text_area.toPlainText()
 
-        self.text_area = oasysgui.textArea(height=95, width=385, readOnly=False)
+        self.text_area = oasysgui.textArea(height=191, width=385, readOnly=False)
         self.text_area.setText(self.energies)
         self.text_area.setStyleSheet("background-color: white; font-family: Courier, monospace;")
         self.text_area.textChanged.connect(write_text)
@@ -299,7 +278,43 @@ class PowerLoopPoint(OWWidget):
         le_current_energy_value.setReadOnly(True)
         le_current_energy_value.setStyleSheet(Styles.line_edit_read_only)
 
+        # ----------------------------------------------
+
+        left_box_2 = oasysgui.widgetBox(tab_recovery, "Input Files Management", addSpace=False, orientation="vertical", width=385, height=150)
+
+        gui.comboBox(left_box_2, self, "load_file_mode", label="Input Files Mode",
+                     items=["Manual", "Automatic"], labelWidth=150,
+                     callback=self.set_load_file_mode, sendSelectedValue=False, orientation="horizontal")
+
+        self.load_file_mode_box_1 = oasysgui.widgetBox(left_box_2, "", addSpace=False, orientation="vertical", height=100)
+        self.load_file_mode_box_2 = oasysgui.widgetBox(left_box_2, "", addSpace=False, orientation="vertical", height=100)
+
+        gui.separator(self.load_file_mode_box_2)
+        oasysgui.lineEdit(self.load_file_mode_box_1, self, "skip_rows", "Skip Rows", labelWidth=260, valueType=int, orientation="horizontal")
+
+        load_box = oasysgui.widgetBox(self.load_file_mode_box_1, "", addSpace=False, orientation="horizontal", height=30)
+        self.le_autobinning_file_name = oasysgui.lineEdit(load_box, self, "autobinning_file_name", "Energy Spectrum", labelWidth=110, valueType=str, orientation="horizontal")
+        gui.button(load_box, self, "...", callback=self.select_autobinning_file, width=25)
+
+        load_box = oasysgui.widgetBox(self.load_file_mode_box_1, "", addSpace=False, orientation="horizontal", height=30)
+        self.le_filters_file_name = oasysgui.lineEdit(load_box, self, "filters_file_name", "Filters File", labelWidth=110, valueType=str, orientation="horizontal")
+        gui.button(load_box, self, "...", callback=self.select_filters_file, width=25)
+
+        self.set_load_file_mode()
+
+        left_box_2 = oasysgui.widgetBox(tab_recovery, "Crash Recovery", addSpace=False, orientation="vertical", width=385)
+
+        oasysgui.lineEdit(left_box_2, self, "recovery_last_energy_step", "Last Energy Step #", labelWidth=260, valueType=int, orientation="horizontal")
+
+        load_box = oasysgui.widgetBox(left_box_2, "", addSpace=False, orientation="horizontal", height=30)
+        self.le_recovery_file_name = oasysgui.lineEdit(load_box, self, "recovery_file_name", "Extract from File", labelWidth=110, valueType=str, orientation="horizontal")
+        gui.button(load_box, self, "...", callback=self.select_recovery_file, width=25)
+
+        gui.button(left_box_2, self, "Restart from Crash", callback=self.restart_loop_from_crash, height=35)
+
         gui.rubber(self.controlArea)
+
+        # ----------------------------------------------
 
         tabs = oasysgui.tabWidget(self.mainArea)
         tabs.setFixedHeight(self.height()-40)
@@ -336,7 +351,7 @@ class PowerLoopPoint(OWWidget):
         self.autobinning_box_1.setVisible(self.autobinning==0)
         self.autobinning_box_2.setVisible(self.autobinning==1 or self.autobinning==2)
         self.text_area.setReadOnly(self.autobinning>=1)
-        self.text_area.setFixedHeight(201 if self.autobinning>=1 else 290)
+        self.text_area.setFixedHeight(185 if self.autobinning>=1 else 280)
 
     def set_load_file_mode(self):
         self.load_file_mode_box_1.setVisible(self.load_file_mode==0)

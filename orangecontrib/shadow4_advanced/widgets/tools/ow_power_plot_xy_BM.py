@@ -66,7 +66,7 @@ from orangecontrib.shadow4_advanced.widgets.gui.power_plot_xy import AbstractPow
 
 class PowerPlotXYBM(AbstractPowerPlotXY):
 
-    name = "Power Plot XY - BM"
+    name = "Power Density - BM"
     description = "Display Data Tools: Power Plot XY - BM"
     icon = "icons/bm_plot_xy_power.png"
     priority = 7
