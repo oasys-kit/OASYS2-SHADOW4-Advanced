@@ -20,17 +20,20 @@ from oasys2.widget.util.widget_util import EmittingStream
 from oasys2.widget.gui import Styles
 from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
-from orangecontrib.shadow4.widgets.gui.ow_automatic_element import AutomaticElement
-from orangecontrib.shadow4.util.shadow4_objects import ShadowData
-from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, ShadowPlot
-from orangecontrib.shadow4.util.python_script import PythonScript
-from orangecontrib.shadow4.util.shadow4_util import TriggerToolsDecorator
+try:
+    from orangecontrib.shadow4.widgets.gui.ow_automatic_element import AutomaticElement
+    from orangecontrib.shadow4.util.shadow4_objects import ShadowData
+    from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, ShadowPlot
+    from orangecontrib.shadow4.util.python_script import PythonScript
+    from orangecontrib.shadow4.util.shadow4_util import TriggerToolsDecorator
+except ImportError:
+    pass
 
 from hybrid_methods.coherence.hybrid_screen import HybridListener, \
     HybridCalculationType, HybridPropagationType, HybridDiffractionPlane, \
     HybridInputParameters, HybridCalculationResult, HybridGeometryAnalysis
 
-from shadow4_advanced.hybrid.s4_hybrid_screen import S4HybridOE, S4HybridBeam, S4HybridScreen, S4HybridScreenElement
+from shadow4_advanced.beamline.optical_elements.hybrid.s4_hybrid_screen import S4HybridOE, S4HybridBeam, S4HybridScreen, S4HybridScreenElement
 
 class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
 

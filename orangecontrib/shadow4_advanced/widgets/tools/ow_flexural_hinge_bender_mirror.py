@@ -23,12 +23,15 @@ from oasys2.widget import gui as oasysgui
 from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
 from shadow4.beamline.optical_elements.mirrors.s4_ellipsoid_mirror import S4EllipsoidMirror
-from shadow4_advanced.benders.s4_flexural_hinge_bender_ellipsoid_mirror import S4FlexuralHingeBenderEllipsoidMirror, S4FlexuralHingeBenderEllipsoidMirrorElement, \
+from shadow4_advanced.beamline.optical_elements.benders.s4_flexural_hinge_bender_ellipsoid_mirror import S4FlexuralHingeBenderEllipsoidMirror, S4FlexuralHingeBenderEllipsoidMirrorElement, \
     BenderType, MirrorShape, FlexuralHingeBenderFitParameters, BenderMovement, CalibrationParameters
 
-from orangecontrib.shadow4.widgets.optics.ow_mirror import _OWMirror
-from orangecontrib.shadow4.util.shadow4_objects import PreReflPreProcessorData
-import copy
+try:
+    from orangecontrib.shadow4.widgets.optics.ow_mirror import _OWMirror
+    from orangecontrib.shadow4.util.shadow4_objects import PreReflPreProcessorData
+except ImportError:
+    pass
+
 
 class OWFlexuralHingeBenderMirror(_OWMirror):
     name        = "Flexural Hinge Bender Mirror"

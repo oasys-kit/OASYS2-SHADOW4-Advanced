@@ -23,10 +23,11 @@ from oasys2.widget import gui as oasysgui
 from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
 from shadow4.beamline.optical_elements.mirrors.s4_ellipsoid_mirror import S4EllipsoidMirror
-from shadow4_advanced.benders.s4_fixed_rods_bender_ellipsoid_mirror import S4FixedRodsBenderEllipsoidMirrorElement, S4FixedRodsBenderEllipsoidMirror, \
+from shadow4_advanced.beamline.optical_elements.benders.s4_fixed_rods_bender_ellipsoid_mirror import S4FixedRodsBenderEllipsoidMirrorElement, S4FixedRodsBenderEllipsoidMirror, \
     FixedRodsBenderFitParameters, BenderMovement, CalibrationParameters
 
-from orangecontrib.shadow4.widgets.optics.ow_mirror import _OWMirror
+try: from orangecontrib.shadow4.widgets.optics.ow_mirror import _OWMirror
+except ImportError: pass
 
 import copy
 

@@ -76,7 +76,7 @@ except ImportError:
 
 from shadow4.beamline.s4_beamline import S4Beamline
 
-from shadow4_advanced.hybrid.s4_hybrid_undulator_light_source import (
+from shadow4_advanced.sources.hybrid.s4_hybrid_undulator_light_source import (
     S4HybridUndulatorLightSource, HybridUndulatorInputParameters, HybridUndulatorOutputParameters, HybridUndulatorListener,
     gamma, get_default_initial_z, resonance_energy, is_canted_undulator, get_source_slit_data, set_which_waist, K_from_magnetic_field, S4HybridUndulator
 )

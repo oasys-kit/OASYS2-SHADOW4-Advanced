@@ -20,23 +20,25 @@ from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
 from syned.beamline.element_coordinates import ElementCoordinates
 
-from orangecontrib.shadow4.util.shadow4_objects import ShadowData
-from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, TriggerToolsDecorator
-from orangecontrib.shadow4.widgets.gui.ow_generic_element import GenericElement
+try:
+    from orangecontrib.shadow4.util.shadow4_objects import ShadowData
+    from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, TriggerToolsDecorator
+    from orangecontrib.shadow4.widgets.gui.ow_generic_element import GenericElement
+except ImportError:
+    pass
 
-from shadow4_advanced.fresnel_zone_plate.s4_fresnel_zone_plate import (S4FresnelZonePlate, S4FresnelZonePlateElement,
-                                                                       FZPCalculationInputParameters, FZPAttributes, FZPSimulatorOptions, FZPCalculationResult)
-GOOD = 1
+from shadow4_advanced.beamline.optical_elements.hybrid.s4_hybrid_fzp import (
+    S4HybridFZP, S4HybridFZPElement,
+    FZPCalculationInputParameters, FZPAttributes, FZPSimulatorOptions, FZPCalculationResult
+)
 
-COLLIMATED_SOURCE_LIMIT = 1e4 #m
-
-class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
-    name = "Hybrid Fresnel Zone Plate"
-    description = "Advanced: Fresnel Zone Plate"
-    icon = "icons/zone_plate.png"
+class OWHybridFZP(GenericElement, TriggerToolsDecorator):
+    name = "Hybrid FZP"
+    description = "Advanced: Hybrid Fresnel Zone Plate"
+    icon = "icons/hybrid_fzp.png"
     maintainer = "Luca Rebuffi"
     maintainer_email = "lrebuffi(@at@)anl.gov"
-    priority = 4
+    priority = 4.1
     category = "Optical Elements"
     keywords = ["data", "file", "load", "read"]
 
@@ -109,7 +111,7 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
     efficiency = 0.0
 
     def __init__(self):
-        super(FresnelZonePlate, self).__init__(show_automatic_box=True, has_footprint=False)
+        super(OWHybridFZP, self).__init__(show_automatic_box=True, has_footprint=False)
 
         self.runaction = OWAction("Run Shadow4/Trace", self)
         self.runaction.triggered.connect(self.run_shadow4)
@@ -160,7 +162,7 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
 
         gui.comboBox(zp_box, self, "zone_plate_type", label="Type of F.Z.P.", labelWidth=350,
                      items=["Ordinary", "Zone-Doubled", "Zone-Filled", "Two-Level"],
-                     callback=self.set_FZPType, sendSelectedValue=False, orientation="horizontal")
+                     callback=self.set_fzp_type, sendSelectedValue=False, orientation="horizontal")
 
         oasysgui.lineEdit(zp_box, self, "zone_plate_material",  "F.Z.P. Material", labelWidth=160, valueType=str, orientation="horizontal")
 
@@ -178,22 +180,22 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
         oasysgui.lineEdit(self.tl_box, self, "height1_factor",  "Height 1 Factor", labelWidth=260, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(self.tl_box, self, "height2_factor",  "Height 2 Factor", labelWidth=260, valueType=float, orientation="horizontal")
 
-        self.set_FZPType()
+        self.set_fzp_type()
 
         gui.comboBox(zp_box, self, "with_central_stop", label="With Central Stop", labelWidth=350,
                      items=["No", "Yes"],
-                     callback=self.set_WithCentralStop, sendSelectedValue=False, orientation="horizontal")
+                     callback=self.set_with_central_stop, sendSelectedValue=False, orientation="horizontal")
 
         self.cs_box_1 = oasysgui.widgetBox(zp_box, "", addSpace=False, orientation="vertical", height=30)
         self.cs_box_2 = oasysgui.widgetBox(zp_box, "", addSpace=False, orientation="vertical", height=30)
 
         oasysgui.lineEdit(self.cs_box_1, self, "cs_diameter", "C.S. Diameter [" + u"\u03BC" + "m]", labelWidth=260, valueType=float, orientation="horizontal")
 
-        self.set_WithCentralStop()
+        self.set_with_central_stop()
 
         gui.comboBox(zp_box, self, "with_order_sorting_aperture", label="With Order Sorting Aperture", labelWidth=350,
                      items=["No", "Yes"],
-                     callback=self.set_WithOrderSortingAperture, sendSelectedValue=False, orientation="horizontal")
+                     callback=self.set_with_order_sorting_aperture, sendSelectedValue=False, orientation="horizontal")
 
         self.osa_box_1 = oasysgui.widgetBox(zp_box, "", addSpace=False, orientation="vertical", height=60)
         self.osa_box_2 = oasysgui.widgetBox(zp_box, "", addSpace=False, orientation="vertical", height=60)
@@ -201,24 +203,24 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
         self.le_osa_position = oasysgui.lineEdit(self.osa_box_1, self, "osa_position", "O.S.A. position [m]", labelWidth=260, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(self.osa_box_1, self, "osa_diameter", "O.S.A. Diameter [" + u"\u03BC" + "m]", labelWidth=260, valueType=float, orientation="horizontal")
 
-        self.set_WithOrderSortingAperture()
+        self.set_with_order_sorting_aperture()
 
         gui.comboBox(zp_box, self, "source_distance_flag", label="Source Distance", labelWidth=350,
                      items=["Same as Source Plane", "Different"],
-                     callback=self.set_SourceDistanceFlag, sendSelectedValue=False, orientation="horizontal")
+                     callback=self.set_source_distance_flag, sendSelectedValue=False, orientation="horizontal")
 
         self.zp_box_1 = oasysgui.widgetBox(zp_box, "", addSpace=False, orientation="vertical", height=30)
         self.zp_box_2 = oasysgui.widgetBox(zp_box, "", addSpace=False, orientation="vertical", height=30)
 
         self.le_source_distance = oasysgui.lineEdit(self.zp_box_1, self, "source_distance", "Source Distance [m]", labelWidth=260, valueType=float, orientation="horizontal")
 
-        self.set_SourceDistanceFlag()
+        self.set_source_distance_flag()
 
         gui.comboBox(zp_box, self, "image_distance_flag", label="Image Distance [m]", labelWidth=350,
                      items=["Image Plane Distance", "F.Z.P. Image Distance"],
-                     callback=self.set_ImageDistanceFlag, sendSelectedValue=False, orientation="horizontal")
+                     callback=self.set_image_distance_flag, sendSelectedValue=False, orientation="horizontal")
 
-        self.set_ImageDistanceFlag()
+        self.set_image_distance_flag()
 
         prop_box = oasysgui.widgetBox(tab_zone_plate_2, "Propagation Parameters", addSpace=False, orientation="vertical", height=270)
 
@@ -230,14 +232,14 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
 
         gui.comboBox(prop_box, self, "increase_resolution", label="Increase Resolution in Focal Image", labelWidth=350,
                      items=["No", "Yes"],
-                     callback=self.set_IncreaseResolution, sendSelectedValue=False, orientation="horizontal")
+                     callback=self.set_increase_resolution, sendSelectedValue=False, orientation="horizontal")
 
         self.res_box_1 = oasysgui.widgetBox(prop_box, "", addSpace=False, orientation="vertical", height=30)
         self.res_box_2 = oasysgui.widgetBox(prop_box, "", addSpace=False, orientation="vertical", height=30)
 
         oasysgui.lineEdit(self.res_box_1, self, "increase_points", "Nr. Points", labelWidth=260, valueType=int, orientation="horizontal")
 
-        self.set_IncreaseResolution()
+        self.set_increase_resolution()
 
         gui.separator(prop_box)
 
@@ -335,16 +337,16 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
 
                     self.progressBarSet(30)
 
-                    element = S4FresnelZonePlateElement(optical_element=S4FresnelZonePlate(input_parameters=input_parameters,
-                                                                                           options=options,
-                                                                                           attributes=attributes),
-                                                        coordinates=ElementCoordinates(p=self.source_distance, q=self.image_distance),
-                                                        input_beam=self.input_data.beam)
+                    element = S4HybridFZPElement(optical_element=S4HybridFZP(input_parameters=input_parameters,
+                                                                             options=options,
+                                                                             attributes=attributes),
+                                                 coordinates=ElementCoordinates(p=self.source_distance, q=self.image_distance),
+                                                 input_beam=self.input_data.beam)
                     #element.set_movements(self.get_movements_instance()) for the future
 
                     print(element.info())
 
-                    output_beam, calculation_result = element.trace_beam()
+                    output_beam, footprint, calculation_result = element.trace_beam()
 
                     zone_plate_out = element.get_optical_element()
 
@@ -354,7 +356,7 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
                     self.focal_distance  = round(zone_plate_out.zp_focal_distance, 6)
                     self.efficiency      = round(calculation_result.efficiency*100, 2)
 
-                    self.plot_propagation_results(calculation_result)
+                    self._plot_propagation_results(calculation_result)
 
                     self.progressBarSet(80)
 
@@ -377,7 +379,7 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
                     #
                     # send beam and trigger
                     #
-                    output_data = ShadowData(beam=output_beam, beamline=beamline)
+                    output_data = ShadowData(beam=output_beam, footprint=footprint, beamline=beamline)
                     output_data.scanning_data = scanning_data
 
                     self.Outputs.shadow_data.send(output_data)
@@ -396,7 +398,7 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
 
     @Inputs.trigger
     def set_trigger_parameters_for_optics(self, trigger):
-        super(FresnelZonePlate, self).set_trigger_parameters_for_optics(trigger)
+        super(OWHybridFZP, self).set_trigger_parameters_for_optics(trigger)
 
     @Inputs.shadow_data
     def set_shadow_data(self, shadow_data):
@@ -413,42 +415,36 @@ class FresnelZonePlate(GenericElement, TriggerToolsDecorator):
     def callResetSettings(self):
         super()._call_reset_settings()
 
-    def set_SourceMovement(self):
-        self.sou_mov_box_1.setVisible(self.source_movement == 1)
-
-    def set_MirrorMovement(self):
-        self.mir_mov_box_1.setVisible(self.mirror_movement == 1)
-
-    def set_FZPType(self):
+    def set_fzp_type(self):
         self.ord_box.setVisible(self.zone_plate_type == 0)
         self.zd_box.setVisible(self.zone_plate_type == 1)
         self.zf_box.setVisible(self.zone_plate_type == 2)
         self.tl_box.setVisible(self.zone_plate_type == 3)
 
-    def set_SourceDistanceFlag(self):
+    def set_source_distance_flag(self):
         self.zp_box_1.setVisible(self.source_distance_flag == 1)
         self.zp_box_2.setVisible(self.source_distance_flag == 0)
 
-    def set_WithCentralStop(self):
+    def set_with_central_stop(self):
         self.cs_box_1.setVisible(self.with_central_stop == 1)
         self.cs_box_2.setVisible(self.with_central_stop == 0)
 
-    def set_WithOrderSortingAperture(self):
+    def set_with_order_sorting_aperture(self):
         self.osa_box_1.setVisible(self.with_order_sorting_aperture == 1)
         self.osa_box_2.setVisible(self.with_order_sorting_aperture == 0)
 
-    def set_WithMultislicing(self):
+    def set_with_multislicing(self):
         self.ms_box_1.setVisible(self.with_multi_slicing == 1)
         self.ms_box_2.setVisible(self.with_multi_slicing == 0)
 
-    def set_IncreaseResolution(self):
+    def set_increase_resolution(self):
         self.res_box_1.setVisible(self.increase_resolution == 1)
         self.res_box_2.setVisible(self.increase_resolution == 0)
 
-    def set_ImageDistanceFlag(self):
+    def set_image_distance_flag(self):
         self.le_image_plane_distance.setEnabled(self.image_distance_flag==0)
 
-    def plot_propagation_results(self, calculation_result : FZPCalculationResult):
+    def _plot_propagation_results(self, calculation_result : FZPCalculationResult):
         self.plot_1D(0, calculation_result.radius*1e6, calculation_result.intensity_profile)
         self.plot_2D(1, calculation_result.xp * 1e6, calculation_result.zp * 1e6, calculation_result.dif_xpzp)
 
