@@ -415,7 +415,7 @@ class OWSimpleFZP(GenericElement, TriggerToolsDecorator):
                     self.tab[6].layout().addWidget(self.plot_canvas[6])
 
                 self.plot_canvas[6].setDefaultPlotLines(True)
-                self.plot_canvas[6].setActiveCurveColor(color='blue')
+                self.plot_canvas[6].setActiveCurveStyle(color='blue')
 
                 self.plot_canvas[6].setGraphTitle('Energy: ' + str(round((W2E / avg_wavelength) * 1e9, 3)) + " eV")
                 self.plot_canvas[6].getXAxis().setLabel('Thickness [nm]')
