@@ -148,6 +148,18 @@ class PowerLoopPoint(OWWidget):
     #################################
 
     def __init__(self):
+        runaction = OWAction("Reload Spectrum and Filters", self)
+        runaction.triggered.connect(self.read_spectrum_and_filters_file)
+        self.addAction(runaction)
+
+        runaction = OWAction("Reload Spectrum Only", self)
+        runaction.triggered.connect(self.read_spectrum_file_only)
+        self.addAction(runaction)
+
+        runaction = OWAction(None, self)
+        runaction.setSeparator(True)
+        self.addAction(runaction)
+
         self.runaction = OWAction("Start", self)
         self.runaction.triggered.connect(self.start_loop)
         self.addAction(self.runaction)
@@ -162,18 +174,6 @@ class PowerLoopPoint(OWWidget):
 
         runaction = OWAction("Restart", self)
         runaction.triggered.connect(self.restart_loop)
-        self.addAction(runaction)
-
-        runaction = OWAction(None, self)
-        runaction.setSeparator(True)
-        self.addAction(runaction)
-
-        runaction = OWAction("Reload Spectrum and Filters", self)
-        runaction.triggered.connect(self.read_spectrum_and_filters_file)
-        self.addAction(runaction)
-
-        runaction = OWAction("Reload Spectrum Only", self)
-        runaction.triggered.connect(self.read_spectrum_file_only)
         self.addAction(runaction)
 
         self.setFixedWidth(1200)
