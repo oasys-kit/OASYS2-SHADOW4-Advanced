@@ -74,7 +74,7 @@ try:
     from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, ShadowPlot
     from orangecontrib.shadow4.widgets.gui.ow_automatic_element import AutomaticElement
 except ImportError:
-    pass
+    raise ImportError("OASYS2-SHADOW4 add-on required to run OASYS2-SHADOW4-Advanced")
 
 TO_MM = 1e3
 

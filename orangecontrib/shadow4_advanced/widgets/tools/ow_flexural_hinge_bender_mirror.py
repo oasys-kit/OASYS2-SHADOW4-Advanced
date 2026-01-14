@@ -30,7 +30,7 @@ try:
     from orangecontrib.shadow4.widgets.optics.ow_mirror import _OWMirror
     from orangecontrib.shadow4.util.shadow4_objects import PreReflPreProcessorData
 except ImportError:
-    pass
+    raise ImportError("OASYS2-SHADOW4 add-on required to run OASYS2-SHADOW4-Advanced")
 
 
 class OWFlexuralHingeBenderMirror(_OWMirror):

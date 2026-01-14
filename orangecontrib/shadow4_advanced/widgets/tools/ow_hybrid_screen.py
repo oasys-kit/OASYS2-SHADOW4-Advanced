@@ -27,7 +27,7 @@ try:
     from orangecontrib.shadow4.util.python_script import PythonScript
     from orangecontrib.shadow4.util.shadow4_util import TriggerToolsDecorator
 except ImportError:
-    pass
+    raise ImportError("OASYS2-SHADOW4 add-on required to run OASYS2-SHADOW4-Advanced")
 
 from hybrid_methods.coherence.hybrid_screen import HybridListener, \
     HybridCalculationType, HybridPropagationType, HybridDiffractionPlane, \

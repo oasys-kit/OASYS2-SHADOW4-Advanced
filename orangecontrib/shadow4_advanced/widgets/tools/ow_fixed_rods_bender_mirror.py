@@ -27,7 +27,7 @@ from shadow4_advanced.beamline.optical_elements.benders.s4_fixed_rods_bender_ell
     FixedRodsBenderFitParameters, BenderMovement, CalibrationParameters
 
 try: from orangecontrib.shadow4.widgets.optics.ow_mirror import _OWMirror
-except ImportError: pass
+except ImportError: raise ImportError("OASYS2-SHADOW4 add-on required to run OASYS2-SHADOW4-Advanced")
 
 import copy
 

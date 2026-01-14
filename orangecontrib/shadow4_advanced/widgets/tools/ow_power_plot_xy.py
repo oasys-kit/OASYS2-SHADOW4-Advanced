@@ -57,7 +57,7 @@ from oasys2.widget.gui import ConfirmDialog
 try:
     from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, ShadowPlot
 except ImportError:
-    pass
+    raise ImportError("OASYS2-SHADOW4 add-on required to run OASYS2-SHADOW4-Advanced")
 
 import scipy.constants as codata
 

@@ -25,7 +25,7 @@ try:
     from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, TriggerToolsDecorator
     from orangecontrib.shadow4.widgets.gui.ow_generic_element import GenericElement
 except ImportError:
-    pass
+    raise ImportError("OASYS2-SHADOW4 add-on required to run OASYS2-SHADOW4-Advanced")
 
 from shadow4_advanced.beamline.optical_elements.hybrid.s4_hybrid_fzp import (
     S4HybridFZP, S4HybridFZPElement,

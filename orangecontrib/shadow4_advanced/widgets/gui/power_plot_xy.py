@@ -78,7 +78,7 @@ try:
     from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, ShadowPlot, ShadowPhysics
     from orangecontrib.shadow4.widgets.gui.ow_automatic_element import AutomaticElement
 except ImportError:
-    pass
+    raise ImportError("OASYS2-SHADOW4 add-on required to run OASYS2-SHADOW4-Advanced")
 
 try:    from mpl_toolkits.mplot3d import Axes3D  # mandatory to load 3D plot
 except: pass

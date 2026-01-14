@@ -58,7 +58,7 @@ from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 try:
     from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, ShadowPlot
 except ImportError:
-    pass
+    raise ImportError("OASYS2-SHADOW4 add-on required to run OASYS2-SHADOW4-Advanced")
 
 import scipy.constants as codata
 

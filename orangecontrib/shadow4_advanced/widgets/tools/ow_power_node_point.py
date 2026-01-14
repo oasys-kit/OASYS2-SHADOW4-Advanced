@@ -68,7 +68,7 @@ from oasys2.widget.util.exchange import DataExchangeObject
 try:
     from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence, ShadowPlot
 except ImportError:
-    pass
+    raise ImportError("OASYS2-SHADOW4 add-on required to run OASYS2-SHADOW4-Advanced")
 
 AUTOBINNING_FILE = "autobinning.dat"
 FILTERS_FILE     = "filters.dat"

@@ -61,7 +61,7 @@ try:
     from orangecontrib.shadow4.util.shadow4_objects import ShadowData
     from orangecontrib.shadow4.util.shadow4_util import ShadowCongruence
 except ImportError:
-    pass
+    raise ImportError("OASYS2-SHADOW4 add-on required to run OASYS2-SHADOW4-Advanced")
 
 from shadow4.beam.s4_beam import S4Beam
 from shadow4.beamline.s4_beamline import S4Beamline
