@@ -53,7 +53,7 @@ import os
 from setuptools import find_packages, setup
 
 NAME = 'OASYS2-SHADOW4-Advanced'
-VERSION = '0.0.21'
+VERSION = '0.0.22'
 ISRELEASED = False
 
 DESCRIPTION = 'oasys2-shadow4-advanced: Oasys 2 widgets for shadow4 - advanced tools'
@@ -83,9 +83,9 @@ CLASSIFIERS = [
 
 
 INSTALL_REQUIRES = (
-                    'oasys2>=0.0.40',
-                    'shadow4-advanced>=0.0.21',
-                    'oasys2-shadow4>=0.0.33',
+                    'oasys2>=0.0.45',
+                    'shadow4-advanced>=0.0.22',
+                    'oasys2-shadow4>=0.0.40',
                     )
 
 PACKAGES = find_packages(exclude=('*.tests', '*.tests.*', 'tests.*', 'tests'))
@@ -99,7 +99,8 @@ ENTRY_POINTS = {
     'oasys2.widgets' : (
             "SHADOW4 Advanced = orangecontrib.shadow4_advanced.widgets.tools",
     ),
-    'oasys2.menus' : ("shadow4advancedmenu = orangecontrib.shadow4_advanced.menu",)
+    'oasys2.menus' : ("shadow4advancedmenu = orangecontrib.shadow4_advanced.menu",),
+    'oasys2.tutorials' : ("shadow4advancedtutorials = orangecontrib.shadow4_advanced.tutorials",),
     }
 
 if __name__ == '__main__':
