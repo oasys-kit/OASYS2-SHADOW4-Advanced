@@ -165,7 +165,7 @@ class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
         self.le_n_peaks   = oasysgui.lineEdit(box_2, self, "n_peaks", "Number of diffraction peaks", labelWidth=260, valueType=int, orientation="horizontal")
         self.le_fft_n_pts = oasysgui.lineEdit(box_2, self, "fft_n_pts", "Number of points for FFT", labelWidth=260, valueType=int, orientation="horizontal")
 
-        box_4 = oasysgui.widgetBox(tab_bas, "Calculation Congruence Parameters", addSpace=True, orientation="vertical", height=130)
+        box_4 = oasysgui.widgetBox(tab_bas, "Calculation Parameters", addSpace=True, orientation="vertical", height=130)
 
         self.cb_analyze_geometry = gui.comboBox(box_4, self, "analyze_geometry", label="Analize geometry to avoid unuseful calculations", labelWidth=310,
                                                 items=["No", "Yes"],
@@ -266,13 +266,13 @@ class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
 
         self.progressBarSet(progressBarValue)
 
-    def plot_emtpy(self, progressBarValue, plot_canvas_index):
+    def plot_emtpy(self, progressBarValue, plot_canvas_index, why="no-result"):
         if self.plot_canvas[plot_canvas_index] is None:
             widget = QWidget()
             widget.setLayout(QHBoxLayout())
             label = QLabel(widget)
-            label.setPixmap(QPixmap(QImage(os.path.join(resources.package_dirname("orangecontrib.shadow.widgets.special_elements"), "../../../../../OASYS1-SHADOW4/orangecontrib/shadow4/widgets/optics/icons", "no_result.png"))))
-
+            if why == "no-result":      label.setPixmap(QPixmap(QImage(os.path.join(resources.package_dirname("orangecontrib.shadow4_advanced.widgets.tools"), "icons", "no_result.png"))))
+            elif why == "no-available": label.setPixmap(QPixmap(QImage(os.path.join(resources.package_dirname("orangecontrib.shadow4_advanced.widgets.tools"), "icons", "no_available.png"))))
             widget.layout().addWidget(label)
 
             self.plot_canvas[plot_canvas_index] = widget
@@ -547,8 +547,10 @@ class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
 
             if do_plot:
                 if self.propagation_type == HybridPropagationType.BOTH:
-                    self.plot_histo_hybrid(progress[0], divergence, start_index + 0,     title=u"\u2206" + ax + "p", xtitle=r'$\Delta$' + ax + 'p [$\\mu$rad]', ytitle='Arbitrary Units', var=4)
-                    self.plot_histo_hybrid(progress[2], position,   start_index + 1, title=u"\u2206" + ax, xtitle=r'$\Delta$' + ax + ' [$\\mu$m]', ytitle='Arbitrary Units', var=1)
+                    if not divergence is None: self.plot_histo_hybrid(progress[0], divergence, start_index + 0,     title=u"\u2206" + ax + "p", xtitle=r'$\Delta$' + ax + 'p [$\\mu$rad]', ytitle='Arbitrary Units', var=4)
+                    else:                      self.plot_emtpy(progress[0], start_index + 0, why="no-available")
+                    if not position is None:   self.plot_histo_hybrid(progress[2], position,   start_index + 1, title=u"\u2206" + ax, xtitle=r'$\Delta$' + ax + ' [$\\mu$m]', ytitle='Arbitrary Units', var=1)
+                    else:                      self.plot_emtpy(progress[2], start_index + 1, why="no-available")
                     if plot_shadow:
                         self.plot_histo(beam[0], progress[1], var, plot_canvas_index=start_index + 2, title=ax, xtitle=r'' + ax + ' [$\\mu$m]', ytitle=r'Number of Rays', xum=("X [" + u"\u03BC" + "m]"))
                         self.plot_histo(beam[1], progress[3], var, plot_canvas_index=start_index + 3, title=ax, xtitle=r'' + ax + ' [$\\mu$m]', ytitle=r'Number of Rays', xum=("X [" + u"\u03BC" + "m]"))
@@ -562,15 +564,15 @@ class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
                         self.plot_histo(beam, progress[3], var, plot_canvas_index=start_index + 1, title=ax, xtitle=r'' + ax + ' [$\\mu$m]', ytitle=r'Number of Rays', xum=("X [" + u"\u03BC" + "m]"))
             else:
                 if self.propagation_type == HybridPropagationType.BOTH:
-                    self.plot_emtpy(progress[0], start_index + 0)
-                    self.plot_emtpy(progress[1], start_index + 1)
+                    self.plot_emtpy(progress[0], start_index + 0, why="no-result")
+                    self.plot_emtpy(progress[1], start_index + 1, why="no-result")
                     if plot_shadow:
-                        self.plot_emtpy(progress[2], start_index + 2)
-                        self.plot_emtpy(progress[3], start_index + 3)
+                        self.plot_emtpy(progress[2], start_index + 2, why="no-result")
+                        self.plot_emtpy(progress[3], start_index + 3, why="no-result")
                 else:
-                    self.plot_emtpy(progress[1], start_index + 0)
+                    self.plot_emtpy(progress[1], start_index + 0, why="no-result")
                     if plot_shadow:
-                        self.plot_emtpy(progress[3], start_index + 1)
+                        self.plot_emtpy(progress[3], start_index + 1, why="no-result")
 
         if   self.diffraction_plane == HybridDiffractionPlane.SAGITTAL:   plot_direction("S", do_plot_sagittal)
         elif self.diffraction_plane == HybridDiffractionPlane.TANGENTIAL: plot_direction("T", do_plot_tangential)
@@ -586,8 +588,8 @@ class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
                     self.plot_histo_hybrid(88, calculation_result.divergence_tangential, 0, title=u"\u2206" + "Z'", xtitle="$\\Delta$Z' [$\\mu$rad]", ytitle=r'Arbitrary Units', var=6)
                     self.plot_histo(beam, 96, 3, plot_canvas_index=1, title="Z", xtitle=r'Z [$\mu$m]', ytitle=r'Number of Rays', xum=("Z [" + u"\u03BC" + "m]"))
                 else:
-                    self.plot_emtpy(88, 0)
-                    self.plot_emtpy(96, 1)
+                    self.plot_emtpy(88, 0, why="no-result")
+                    self.plot_emtpy(96, 1, why="no-result")
         elif self.diffraction_plane == HybridDiffractionPlane.BOTH_2X1D:
             plot_direction("S", do_plot_sagittal,   progress=[82, 82, 84, 84], plot_shadow=False)
             plot_direction("T", do_plot_tangential, progress=[86, 88, 94, 98], start_index=2 if self.propagation_type == HybridPropagationType.BOTH else 1, plot_shadow=False)
