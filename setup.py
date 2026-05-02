@@ -53,7 +53,7 @@ import os
 from setuptools import find_packages, setup
 
 NAME = 'OASYS2-SHADOW4-Advanced'
-VERSION = '0.0.22'
+VERSION = '0.0.23'
 ISRELEASED = False
 
 DESCRIPTION = 'oasys2-shadow4-advanced: Oasys 2 widgets for shadow4 - advanced tools'
@@ -84,7 +84,7 @@ CLASSIFIERS = [
 
 INSTALL_REQUIRES = (
                     'oasys2>=0.0.45',
-                    'shadow4-advanced>=0.0.22',
+                    'shadow4-advanced>=0.0.23',
                     'oasys2-shadow4>=0.0.40',
                     )
 

@@ -73,6 +73,7 @@ class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
     fft_n_pts = Setting(1e5)
 
     analyze_geometry = Setting(1)
+    treat_displacement_as_phase_shift = Setting(0)
 
     crl_error_profiles = Setting([])
     crl_material_data = Setting(0)
@@ -164,12 +165,15 @@ class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
         self.le_n_peaks   = oasysgui.lineEdit(box_2, self, "n_peaks", "Number of diffraction peaks", labelWidth=260, valueType=int, orientation="horizontal")
         self.le_fft_n_pts = oasysgui.lineEdit(box_2, self, "fft_n_pts", "Number of points for FFT", labelWidth=260, valueType=int, orientation="horizontal")
 
-        box_4 = oasysgui.widgetBox(tab_bas, "Calculation Congruence Parameters", addSpace=True, orientation="vertical", height=100)
+        box_4 = oasysgui.widgetBox(tab_bas, "Calculation Congruence Parameters", addSpace=True, orientation="vertical", height=130)
 
         self.cb_analyze_geometry = gui.comboBox(box_4, self, "analyze_geometry", label="Analize geometry to avoid unuseful calculations", labelWidth=310,
                                                 items=["No", "Yes"],
                                                 sendSelectedValue=False, orientation="horizontal")
 
+        gui.comboBox(box_4, self, "treat_displacement_as_phase_shift", label="Treat Displacements as Phase Shifts", labelWidth=310,
+                     items=["No", "Yes"],
+                     sendSelectedValue=False, orientation="horizontal")
 
         gui.comboBox(box_4, self, "send_original_beam", label="Send Original Beam in case of failure", labelWidth=310,
                      items=["No", "Yes"],
@@ -441,6 +445,7 @@ class HybridScreen(AutomaticElement, TriggerToolsDecorator, HybridListener):
                                                              n_peaks=int(self.n_peaks),
                                                              fft_n_pts=int(self.fft_n_pts),
                                                              analyze_geometry=self.analyze_geometry==1,
+                                                             treat_displacement_as_phase_shift=self.treat_displacement_as_phase_shift==1,
                                                              random_seed=None,  # TODO: add field
                                                              **additional_parameters)
                     try:
