@@ -70,10 +70,11 @@ class OWSimpleFZP(GenericElement, TriggerToolsDecorator):
 
     type_of_zp = Setting(1)
 
-    zone_plate_material = Setting("Au")
-    zone_plate_thickness = Setting(200) # nm
-    substrate_material = Setting("Si3N4")
-    substrate_thickness = Setting(50) # nm
+    zone_plate_material   = Setting("Au")
+    zone_plate_material_2 = Setting("")
+    zone_plate_thickness  = Setting(200) # nm
+    substrate_material    = Setting("Si3N4")
+    substrate_thickness   = Setting(50) # nm
 
     avg_wavelength = 0.0
     number_of_zones = 0
@@ -144,7 +145,7 @@ class OWSimpleFZP(GenericElement, TriggerToolsDecorator):
         tab_zone_plate_1 = oasysgui.createTabPage(tabs_basic_setting, "Zone Plate Input Parameters")
         tab_zone_plate_2 = oasysgui.createTabPage(tabs_basic_setting, "Zone Plate Output Parameters")
 
-        zp_box = oasysgui.widgetBox(tab_zone_plate_1, "Input Parameters", addSpace=False, orientation="vertical", height=290)
+        zp_box = oasysgui.widgetBox(tab_zone_plate_1, "Input Parameters", addSpace=False, orientation="vertical", height=320)
 
         oasysgui.lineEdit(zp_box, self, "delta_rn",  u"\u03B4" + "rn [nm]", labelWidth=260, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(zp_box, self, "diameter", "Z.P. Diameter [" + u"\u03BC" + "m]", labelWidth=260, valueType=float, orientation="horizontal")
@@ -168,7 +169,8 @@ class OWSimpleFZP(GenericElement, TriggerToolsDecorator):
 
         self.zp_box_3 = oasysgui.widgetBox(zp_box, "", addSpace=False, orientation="vertical")
 
-        oasysgui.lineEdit(self.zp_box_3, self, "zone_plate_material",  "Zone Plate Material", labelWidth=260, valueType=str, orientation="horizontal")
+        oasysgui.lineEdit(self.zp_box_3, self, "zone_plate_material",    "Zone Plate Material", labelWidth=260, valueType=str, orientation="horizontal")
+        oasysgui.lineEdit(self.zp_box_3, self, "zone_plate_material_2",  "Zone Plate Material 2 (alt.)", labelWidth=260, valueType=str, orientation="horizontal")
         oasysgui.lineEdit(self.zp_box_3, self, "zone_plate_thickness",  "Zone Plate Thickness [nm]", labelWidth=260, valueType=float, orientation="horizontal")
         oasysgui.lineEdit(self.zp_box_3, self, "substrate_material", "Substrate Material", labelWidth=260, valueType=str, orientation="horizontal")
         oasysgui.lineEdit(self.zp_box_3, self, "substrate_thickness",  "Substrate Thickness [nm]", labelWidth=260, valueType=float, orientation="horizontal")
@@ -279,6 +281,7 @@ class OWSimpleFZP(GenericElement, TriggerToolsDecorator):
                                                                              source_distance=self.source_distance,
                                                                              type_of_zp=self.type_of_zp,
                                                                              zone_plate_material=self.zone_plate_material,
+                                                                             zone_plate_material_2=None if str(self.zone_plate_material_2).strip() == "" else self.zone_plate_material_2,
                                                                              zone_plate_thickness=self.zone_plate_thickness*1e-9,
                                                                              substrate_material=self.substrate_material,
                                                                              substrate_thickness=self.substrate_thickness*1e-9),
@@ -297,17 +300,22 @@ class OWSimpleFZP(GenericElement, TriggerToolsDecorator):
 
                     self.number_of_zones = calculation_result.get('number_of_zones', -1)
 
-                    self.avg_wavelength = avg_wavelength
-                    self.focal_distance = simple_fzp_out.focal_distance(avg_wavelength)
-                    self.image_position = simple_fzp_out.image_position(self.focal_distance)
-                    self.magnification  = simple_fzp_out.magnification(self.image_position)
+                    focal_distance = simple_fzp_out.focal_distance(avg_wavelength)
+                    image_position = simple_fzp_out.image_position(self.focal_distance)
+                    magnification  = simple_fzp_out.magnification(self.image_position)
 
-                    self.avg_wavelength = numpy.round(self.avg_wavelength, 3)  # nm
-                    self.focal_distance = numpy.round(self.focal_distance, 6)
-                    self.image_position = numpy.round(self.image_position, 6)
-                    self.magnification  = numpy.round(self.magnification, 6)
+                    self.avg_wavelength = numpy.round(avg_wavelength, 3)  # nm
+                    self.focal_distance = numpy.round(focal_distance, 6)
+                    self.image_position = numpy.round(image_position, 6)
+                    self.magnification  = numpy.round(magnification, 6)
 
                     if self.automatically_set_image_plane == 1: self.image_plane_distance = self.image_position
+
+                    efficiency, max_efficiency, thickness_max_efficiency = simple_fzp_out.calculate_efficiency(wavelength_in_nm=avg_wavelength)
+
+                    self.efficiency               = numpy.round(100 * efficiency, 4)
+                    self.max_efficiency           = numpy.round(100 * max_efficiency, 4)
+                    self.thickness_max_efficiency = numpy.round(thickness_max_efficiency, 0)
 
                     self.progressBarSet(80)
 
