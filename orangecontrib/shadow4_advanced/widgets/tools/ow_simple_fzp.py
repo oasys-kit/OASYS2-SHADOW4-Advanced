@@ -429,7 +429,9 @@ class OWSimpleFZP(GenericElement, TriggerToolsDecorator):
 
                 self.plot_canvas[5].addCurve(x_values, y_values, "Efficiency vs Energy", symbol='', color='blue', replace=True)
             else:
-                if not self.plot_canvas[5] is None: self.plot_canvas[5].clear()
+                if not self.plot_canvas[5] is None:
+                    self.plot_canvas[5].clear()
+                    self.plot_canvas[5]._backend.ax.clear()
 
             if self.thickness_plot == 1:
                 if self.plot_canvas[6] is None:
@@ -448,7 +450,9 @@ class OWSimpleFZP(GenericElement, TriggerToolsDecorator):
 
                 self.plot_canvas[6].addCurve(x_values, y_values, "Efficiency vs Thickness", symbol='', color='blue', replace=True)
             else:
-                if not self.plot_canvas[6] is None: self.plot_canvas[6].clear()
+                if not self.plot_canvas[6] is None:
+                    self.plot_canvas[6].clear()
+                    self.plot_canvas[6]._backend.ax.clear()
 
             if self.energy_plot == 1 and self.thickness_plot == 1:
                 if self.plot_canvas[7] is None:
@@ -474,12 +478,21 @@ class OWSimpleFZP(GenericElement, TriggerToolsDecorator):
 
                 figure.canvas.draw()
             else:
-                if not self.plot_canvas[7] is None: self.plot_canvas[7].clear()
-
+                if not self.plot_canvas[7] is None:
+                    self.plot_canvas[7].figure.clear()
+                    self.plot_canvas[7].figure.gca().clear()
+                    self.plot_canvas[7].figure.canvas.draw()
         else:
-            if not self.plot_canvas[5] is None: self.plot_canvas[5].clear()
-            if not self.plot_canvas[6] is None: self.plot_canvas[6].clear()
-            if not self.plot_canvas[7] is None: self.plot_canvas[7].clear()
+            if not self.plot_canvas[5] is None:
+                self.plot_canvas[5].clear()
+                self.plot_canvas[5]._backend.ax.clear()
+            if not self.plot_canvas[6] is None:
+                self.plot_canvas[6].clear()
+                self.plot_canvas[5]._backend.ax.clear()
+            if not self.plot_canvas[7] is None:
+                self.plot_canvas[7].figure.clear()
+                self.plot_canvas[7].figure.gca().clear()
+                self.plot_canvas[7].figure.canvas.draw()
 
     def _get_titles(self):
         titles = super(OWSimpleFZP, self)._get_titles()
