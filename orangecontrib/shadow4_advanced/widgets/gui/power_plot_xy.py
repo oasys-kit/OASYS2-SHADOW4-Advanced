@@ -2402,7 +2402,7 @@ class ShowFitFormulasDialog(QDialog):
 
 
 from matplotlib import cm
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
 from matplotlib import gridspec

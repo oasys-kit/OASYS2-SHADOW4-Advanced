@@ -1,6 +1,9 @@
 import sys, numpy
 
 from AnyQt.QtWidgets import QMessageBox
+from matplotlib.figure import Figure
+from matplotlib import cm
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 
 from orangewidget import gui
 from orangewidget.settings import Setting
@@ -11,6 +14,7 @@ from oasys2.widget import gui as oasysgui
 from oasys2.widget.util import congruence
 from oasys2.widget.util.widget_util import EmittingStream
 from oasys2.widget.gui import Styles
+
 from oasys2.widget.util.widget_objects import TriggerIn
 from oasys2.canvas.util.canvas_util import add_widget_parameters_to_module
 
@@ -394,6 +398,16 @@ class OWSimpleFZP(GenericElement, TriggerToolsDecorator):
         self.zp_box_1.setVisible(self.source_distance_flag == 1)
         self.zp_box_2.setVisible(self.source_distance_flag == 0)
 
+    def create_figure_canvas_3D(self):
+        figure = Figure(figsize=(8, 6))
+        figure.patch.set_facecolor('white')
+
+        figure_canvas = FigureCanvas(figure)
+        figure_canvas.setFixedWidth(self.IMAGE_WIDTH)
+        figure_canvas.setFixedHeight(self.IMAGE_HEIGHT-10)
+
+        return figure_canvas
+
     def _plot_efficiency(self, simple_fzp_out: S4SimpleFZP, avg_wavelength: float):
         if self.type_of_zp == FZPType.PHASE_ZP:
             if self.energy_plot == 1:
@@ -410,7 +424,7 @@ class OWSimpleFZP(GenericElement, TriggerToolsDecorator):
                 self.plot_canvas[5].getXAxis().setLabel('Energy [eV]')
                 self.plot_canvas[5].getYAxis().setLabel('Efficiency [%]')
 
-                x_values = numpy.linspace(self.energy_from, self.energy_to, 100)
+                x_values = numpy.linspace(self.energy_from, self.energy_to, 100, endpoint=True)
                 y_values = numpy.round(100.0 * simple_fzp_out.get_efficiency_by_energy(energies=x_values), 3)
 
                 self.plot_canvas[5].addCurve(x_values, y_values, "Efficiency vs Energy", symbol='', color='blue', replace=True)
@@ -429,21 +443,49 @@ class OWSimpleFZP(GenericElement, TriggerToolsDecorator):
                 self.plot_canvas[6].getXAxis().setLabel('Thickness [nm]')
                 self.plot_canvas[6].getYAxis().setLabel('Efficiency [%]')
 
-                x_values = numpy.linspace(self.thickness_from, self.thickness_to, 100)
+                x_values = numpy.linspace(self.thickness_from, self.thickness_to, 100, endpoint=True)
                 y_values = numpy.round(100 * simple_fzp_out.get_efficiency_by_thickness(avg_wavelength, x_values), 3)
 
                 self.plot_canvas[6].addCurve(x_values, y_values, "Efficiency vs Thickness", symbol='', color='blue', replace=True)
             else:
                 if not self.plot_canvas[6] is None: self.plot_canvas[6].clear()
 
+            if self.energy_plot == 1 and self.thickness_plot == 1:
+                if self.plot_canvas[7] is None:
+                    self.plot_canvas[7] = self.create_figure_canvas_3D()
+                    self.tab[7].layout().addWidget(self.plot_canvas[7])
+
+                x_coords = numpy.linspace(self.energy_from, self.energy_to, 100, endpoint=True)
+                y_coords = numpy.linspace(self.thickness_from, self.thickness_to, 100, endpoint=True)
+                z_values = numpy.round(100 * simple_fzp_out.get_efficiency_by_energy_and_thickness(energies=x_coords, thicknesses_in_nm=y_coords), 3)
+                extent   = [self.energy_from, self.energy_to, self.thickness_from, self.thickness_to]
+
+                figure = self.plot_canvas[7].figure
+                figure.clear()
+                axis = figure.gca()
+                axis.clear()
+
+                ax = figure.gca()
+                im = ax.imshow(z_values.T, extent=extent, origin='lower', aspect='auto', cmap='rainbow')
+                figure.colorbar(im, ax=ax, label="Efficiency [%]")
+                axis.set_xlabel('Energy [eV]')
+                axis.set_ylabel('Thickness [nm]')
+                axis.set_title('Efficiency vs Energy vs Thickness')
+
+                figure.canvas.draw()
+            else:
+                if not self.plot_canvas[7] is None: self.plot_canvas[7].clear()
+
         else:
             if not self.plot_canvas[5] is None: self.plot_canvas[5].clear()
             if not self.plot_canvas[6] is None: self.plot_canvas[6].clear()
+            if not self.plot_canvas[7] is None: self.plot_canvas[7].clear()
 
     def _get_titles(self):
         titles = super(OWSimpleFZP, self)._get_titles()
         titles.append("Efficiency vs. Energy")
         titles.append("Efficiency vs. Thickness")
+        titles.append("Efficiency vs. Thickness vs. Energy")
 
         return titles
 

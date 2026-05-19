@@ -6,7 +6,7 @@ from AnyQt.QtGui import QPixmap
 from AnyQt.QtCore import Qt
 
 from matplotlib import cm
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
 try:
